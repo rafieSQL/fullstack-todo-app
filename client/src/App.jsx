@@ -70,6 +70,21 @@ export default function App() {
   const [newPriority, setNewPriority] = useState('medium')
   const [newCategory, setNewCategory] = useState('General')
 
+  // Helper untuk selalu mendapatkan context tasks terbaru kapan pun dipanggil
+  const getActiveContextTasks = useCallback(() => {
+    const taskList = tasks || []
+    return taskList.map((t) => ({
+      id: t.id || t._id,
+      title: t.title || t.text,
+      completed: Boolean(t.completed),
+      category: t.category || t.workspace || 'General',
+      workspace: t.category || t.workspace || 'General',
+      priority: t.priority || 'Medium',
+      dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
+      time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+    }))
+  }, [tasks])
+
   // Navigation state (Tasks vs Chronos Calendar)
   const [mainTab, setMainTab] = useState('tasks') // 'tasks' | 'calendar'
 
@@ -438,19 +453,7 @@ export default function App() {
 
       try {
         // Send input to AI parser for multi-task decomposition & deadline extraction (with 7s timeout & active task memory)
-        const taskList = tasks || []
-        const activeContextTasks = taskList.map((t) => ({
-          id: t.id || t._id,
-          title: t.title || t.text,
-          completed: Boolean(t.completed),
-          category: t.category || t.workspace || 'General',
-          workspace: t.category || t.workspace || 'General',
-          priority: t.priority || 'Medium',
-          dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
-          time: t.due_date || t.scheduled_at || 'tanpa jadwal'
-        }))
-
-        const parsed = await parseCommandWithAI(rawInput, new Date().toISOString(), null, activeContextTasks)
+        const parsed = await parseCommandWithAI(rawInput, new Date().toISOString(), null, getActiveContextTasks())
 
         // Ambiguity check
         if (parsed.is_ambiguous) {
@@ -1110,20 +1113,8 @@ export default function App() {
       setInterimVoiceText(`⚡ Memproses: "${text}"...`)
       sfx.playActivate()
 
-      const taskList = tasks || []
-      const activeContextTasks = taskList.map((t) => ({
-        id: t.id || t._id,
-        title: t.title || t.text,
-        completed: Boolean(t.completed),
-        category: t.category || t.workspace || 'General',
-        workspace: t.category || t.workspace || 'General',
-        priority: t.priority || 'Medium',
-        dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
-        time: t.due_date || t.scheduled_at || 'tanpa jadwal'
-      }))
-
       try {
-        const { transcript, result } = await processTextCommand(text, new Date().toISOString(), activeContextTasks)
+        const { transcript, result } = await processTextCommand(text, new Date().toISOString(), getActiveContextTasks())
         await executePartnerAction(result, transcript)
       } catch (err) {
         console.error('Partner text command error:', err)
@@ -1137,7 +1128,7 @@ export default function App() {
         }, 3500)
       }
     },
-    [partnerPromptInput, tasks, executePartnerAction, showToast]
+    [partnerPromptInput, getActiveContextTasks, executePartnerAction, showToast]
   )
 
   // Partner Voice Agent - Click Start / Click Stop Native Recording with Gemini Audio Transcription
@@ -1148,18 +1139,6 @@ export default function App() {
     }
 
     if (isPartnerProcessing) return
-
-    const taskList = tasks || []
-    const activeContextTasks = taskList.map((t) => ({
-      id: t.id || t._id,
-      title: t.title || t.text,
-      completed: Boolean(t.completed),
-      category: t.category || t.workspace || 'General',
-      workspace: t.category || t.workspace || 'General',
-      priority: t.priority || 'Medium',
-      dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
-      time: t.due_date || t.scheduled_at || 'tanpa jadwal'
-    }))
 
     if (!isPartnerRecording) {
       setIsPartnerRecording(true)
@@ -1198,7 +1177,7 @@ export default function App() {
             transcribedText,
             new Date().toISOString(),
             null,
-            activeContextTasks
+            getActiveContextTasks()
           )
           await executePartnerAction(result, transcribedText)
         } catch (err) {
