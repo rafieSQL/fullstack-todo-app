@@ -199,19 +199,38 @@ app.use((req, res, next) => {
  * Helper to parse multipart/form-data audio or direct raw binary audio
  */
 function parseAudioPayload(buffer, contentType) {
-  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
+  if (!buffer || (Buffer.isBuffer(buffer) && buffer.length === 0)) {
     return { audioBuffer: null, mimeType: 'audio/webm', currentTimeISO: null }
   }
 
   const cType = (contentType || '').toLowerCase()
 
-  // 1. If sent directly as raw audio binary
+  // 1. If sent as JSON with audioBase64
+  if (cType.includes('application/json')) {
+    try {
+      const parsed =
+        typeof buffer === 'object' && !Buffer.isBuffer(buffer)
+          ? buffer
+          : JSON.parse(buffer.toString('utf-8'))
+      if (parsed.audioBase64) {
+        return {
+          audioBuffer: Buffer.from(parsed.audioBase64, 'base64'),
+          mimeType: parsed.mimeType || 'audio/webm',
+          currentTimeISO: parsed.currentTimeISO || new Date().toISOString()
+        }
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  // 2. If sent directly as raw audio binary
   if (cType.startsWith('audio/') || cType.includes('application/octet-stream')) {
     const mime = cType.split(';')[0].trim()
     return { audioBuffer: buffer, mimeType: mime || 'audio/webm', currentTimeISO: null }
   }
 
-  // 2. If sent as multipart/form-data
+  // 3. If sent as multipart/form-data
   const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i)
   if (!boundaryMatch) {
     return { audioBuffer: buffer, mimeType: 'audio/webm', currentTimeISO: null }

@@ -1,7 +1,11 @@
 /**
- * Partner Clean Audio Recorder Utility
- * Zero SpeechRecognition dependencies. Uses native navigator.mediaDevices.getUserMedia and MediaRecorder.
+ * Partner Clean Audio Recorder & Resilient Voice Dispatcher
+ * Zero legacy SpeechRecognition dependencies. Uses native MediaRecorder.
+ * Sends base64 audio payload to Vercel Serverless / Backend API (/api/partner-voice),
+ * with an automatic direct Client-Side Groq Fallback so it never fails.
  */
+
+import { parseCommandWithAI } from './aiService.js'
 
 let mediaStream = null
 let mediaRecorder = null
@@ -144,7 +148,80 @@ export function isRecording() {
 }
 
 /**
- * Send audio blob to serverless / backend Groq Whisper + Llama 3 pipeline
+ * Convert audio Blob to Base64 string
+ */
+export function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const result = reader.result
+      if (typeof result === 'string') {
+        const base64 = result.includes(',') ? result.split(',')[1] : result
+        resolve(base64)
+      } else {
+        reject(new Error('Failed to convert audio blob to base64.'))
+      }
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+/**
+ * Direct Client-Side Groq Fallback (Whisper Audio Transcription + Llama 3 Intent)
+ */
+async function fallbackClientSideGroq(audioBlob, currentTimeISO) {
+  const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
+  if (!apiKey) {
+    throw new Error('Groq API Key is not configured on client or server.')
+  }
+
+  console.warn('[Partner Voice] Using direct client-side Groq fallback pipeline...')
+
+  // Step 1: Client-Side Whisper Transcription
+  const whisperFormData = new FormData()
+  whisperFormData.append('file', audioBlob, 'voice_recording.webm')
+  whisperFormData.append('model', 'whisper-large-v3')
+  whisperFormData.append('response_format', 'json')
+
+  const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: whisperFormData
+  })
+
+  if (!whisperRes.ok) {
+    const errText = await whisperRes.text()
+    throw new Error(`Client-side Whisper transcription failed: ${errText}`)
+  }
+
+  const whisperData = await whisperRes.json()
+  const transcript = (whisperData.text || '').trim()
+
+  if (!transcript) {
+    return {
+      transcript: '',
+      result: {
+        action: 'UNKNOWN',
+        title: '',
+        reply_summary: 'Suara tidak terdeteksi. Silakan coba lagi.'
+      }
+    }
+  }
+
+  // Step 2: Client-Side Llama 3 Reasoning
+  const aiResult = await parseCommandWithAI(transcript, currentTimeISO)
+  return {
+    transcript,
+    result: aiResult
+  }
+}
+
+/**
+ * Send audio blob to Vercel Serverless Function (/api/partner-voice)
+ * with automatic direct Client-Side Groq Fallback
  */
 export async function sendAudioToPartnerVoice(
   audioBlob,
@@ -154,37 +231,39 @@ export async function sendAudioToPartnerVoice(
     throw new Error('Audio recording is empty.')
   }
 
-  const formData = new FormData()
-  formData.append('audio', audioBlob, 'voice_recording.webm')
-  formData.append('currentTimeISO', currentTimeISO)
+  try {
+    const audioBase64 = await blobToBase64(audioBlob)
 
-  const endpoints = ['/api/partner-voice', 'http://localhost:5000/api/partner-voice']
-  let lastError = null
-
-  for (const url of endpoints) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'x-current-time': currentTimeISO
-        },
-        body: formData
+    // Primary: Call Vercel Serverless / backend API endpoint
+    const response = await fetch('/api/partner-voice', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-current-time': currentTimeISO
+      },
+      body: JSON.stringify({
+        audioBase64,
+        mimeType: audioBlob.type || 'audio/webm',
+        currentTimeISO
       })
+    })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(
-          errorData.error || errorData.details || `Server responded with status ${response.status}`
-        )
-      }
-
+    if (response.ok) {
       const data = await response.json()
       return data
-    } catch (err) {
-      lastError = err
-      console.warn(`Partner voice call failed on ${url}:`, err.message)
     }
+
+    console.warn(
+      `[Partner Voice] /api/partner-voice returned ${response.status}. Triggering client-side fallback...`
+    )
+  } catch (netError) {
+    console.warn(
+      '[Partner Voice] Network error reaching /api/partner-voice:',
+      netError.message,
+      'Triggering client-side fallback...'
+    )
   }
 
-  throw lastError || new Error('Could not reach Partner voice processing server.')
+  // Resilient Fallback: Run direct client-side Groq pipeline
+  return await fallbackClientSideGroq(audioBlob, currentTimeISO)
 }
