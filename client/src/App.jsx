@@ -814,21 +814,22 @@ export default function App() {
 
       try {
         const recordingResult = await stopRecording()
-        if (
-          !recordingResult ||
-          !recordingResult.audioBlob ||
-          recordingResult.audioBlob.size === 0
-        ) {
+        const audioBlob =
+          recordingResult instanceof Blob
+            ? recordingResult
+            : recordingResult?.audioBlob || recordingResult
+
+        if (!audioBlob || audioBlob.size === 0) {
           setIsPartnerProcessing(false)
           setInterimVoiceText('')
           sfx.playDeactivate()
-          showToast('🤝 Recording stopped (no audio captured).')
+          showToast('No audio captured. Please speak into the mic before stopping.', 'error')
           return
         }
 
-        // 2. Send Audio Blob to Server Pipeline (Groq Whisper-large-v3 + Llama 3.3-70b-versatile)
+        // Send Audio Blob directly to Groq Whisper & Llama 3 API (Client Direct)
         const data = await sendAudioToPartnerVoice(
-          recordingResult.audioBlob,
+          audioBlob,
           new Date().toISOString()
         )
 

@@ -1,7 +1,7 @@
 /**
  * Partner Clean Audio Recorder & Direct Client-Side Groq AI Pipeline
- * Captures raw microphone audio via MediaRecorder and transcribes / reasons directly via Groq API.
- * Eliminates server network hops and fixes "Failed to fetch" on all hosting platforms.
+ * 100% Client-Side Direct Execution (Zero Server /api/ Dependencies).
+ * Captures raw microphone audio via MediaRecorder and calls Groq Whisper & Llama 3 directly.
  */
 
 let mediaStream = null
@@ -53,8 +53,7 @@ export async function startRecording() {
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
+        noiseSuppression: true
       }
     })
 
@@ -89,36 +88,49 @@ export async function startRecording() {
 export function stopRecording() {
   return new Promise((resolve, reject) => {
     if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-      isRecordingState = false
       cancelRecording()
-      resolve(null)
+      reject(new Error('No audio captured. Please speak into the mic before stopping.'))
       return
     }
 
     mediaRecorder.onstop = () => {
-      try {
-        const mimeType = mediaRecorder ? mediaRecorder.mimeType : getSupportedMimeType()
-        const audioBlob = new Blob(audioChunks, { type: mimeType })
-        audioChunks = []
-        isRecordingState = false
-        cancelRecording()
-        resolve({ audioBlob, mimeType })
-      } catch (err) {
-        reject(err)
+      // Always stop tracks to release mic hardware & avoid memory leaks
+      if (mediaStream) {
+        try {
+          mediaStream.getTracks().forEach((track) => track.stop())
+        } catch {
+          // ignore
+        }
+        mediaStream = null
       }
+
+      const mimeType = mediaRecorder ? mediaRecorder.mimeType : getSupportedMimeType()
+      const audioBlob = new Blob(audioChunks, { type: mimeType })
+      audioChunks = []
+      isRecordingState = false
+
+      if (!audioBlob || audioBlob.size === 0) {
+        reject(new Error('No audio captured. Please speak into the mic before stopping.'))
+        return
+      }
+
+      resolve(audioBlob)
     }
 
     mediaRecorder.onerror = (event) => {
-      isRecordingState = false
       cancelRecording()
       reject(event.error || new Error('Recording error occurred.'))
     }
 
+    // Force dump any buffered audio before stopping
     try {
-      mediaRecorder.stop()
+      if (mediaRecorder.state !== 'inactive') {
+        mediaRecorder.requestData()
+        mediaRecorder.stop()
+      }
     } catch {
       cancelRecording()
-      resolve(null)
+      reject(new Error('No audio captured. Please speak into the mic before stopping.'))
     }
   })
 }
@@ -152,21 +164,20 @@ export async function sendAudioToPartnerVoice(
   currentTimeISO = new Date().toISOString()
 ) {
   if (!audioBlob || audioBlob.size === 0) {
-    throw new Error('Audio recording is empty.')
+    throw new Error('No audio captured. Please speak into the mic before stopping.')
   }
 
   const GROQ_API_KEY = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
   if (!GROQ_API_KEY) {
-    throw new Error(
-      'VITE_GROQ_API_KEY is missing. Please add VITE_GROQ_API_KEY to your environment variables.'
-    )
+    throw new Error('Groq API Key is missing in .env!')
   }
 
   // ==========================================
-  // STEP A: Transcribe Audio via Groq Whisper API
+  // STEP A: Speech-to-Text (Whisper)
+  // Target: https://api.groq.com/openai/v1/audio/transcriptions
   // ==========================================
   const formData = new FormData()
-  formData.append('file', audioBlob, 'voice.webm')
+  formData.append('file', audioBlob, 'recording.webm')
   formData.append('model', 'whisper-large-v3')
   formData.append('language', 'id')
   formData.append('response_format', 'json')
@@ -201,21 +212,19 @@ export async function sendAudioToPartnerVoice(
   console.log('[Partner Voice] Transcribed:', transcript)
 
   // ==========================================
-  // STEP B: Reason Intent via Groq Llama 3
+  // STEP B: Structured Intent Extraction (Llama 3)
+  // Target: https://api.groq.com/openai/v1/chat/completions
   // ==========================================
-  const systemPrompt = `You are an elite productivity AI assistant. Extract intent from user command in Indonesian or English.
-Reference local ISO time: ${currentTimeISO}.
-
-Return ONLY valid JSON matching this schema without markdown blocks:
+  const systemPrompt = `You are an elite productivity AI. Reference ISO time: ${currentTimeISO}. Parse the Indonesian/English transcript into STRICT JSON without markdown:
 {
   "action": "CREATE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
-  "title": "Clean concise title (omit command verbs like 'tambah', 'bikin', 'add')",
-  "start_time": "ISO-8601 string or null",
-  "end_time": "ISO-8601 string or null",
+  "title": "concise clean title",
+  "start_time": "ISO string or null",
+  "end_time": "ISO string or null",
   "priority": "High" | "Medium" | "Low",
   "category": "General" | "Engineering" | "Design" | "Personal",
   "target_view": "calendar" | "tasks" | "focus" | null,
-  "reply_summary": "Friendly Indonesian short confirmation (e.g. 'Tugas [judul] berhasil ditambahkan')"
+  "reply_summary": "Indonesian feedback message"
 }`
 
   const chatRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -233,8 +242,7 @@ Return ONLY valid JSON matching this schema without markdown blocks:
         },
         { role: 'user', content: transcript }
       ],
-      temperature: 0.1,
-      response_format: { type: 'json_object' }
+      temperature: 0.1
     })
   })
 
