@@ -3,15 +3,12 @@ import { parseCommandWithAI } from './aiService.js'
 let mediaStream = null
 let mediaRecorder = null
 let audioChunks = []
-let isRecordingState = false
 
 export function isRecordingSupported() {
-  if (typeof window === 'undefined') return false
   return !!(
-    window.navigator &&
-    window.navigator.mediaDevices &&
-    typeof window.navigator.mediaDevices.getUserMedia === 'function' &&
-    typeof window.MediaRecorder === 'function'
+    typeof window !== 'undefined' &&
+    navigator.mediaDevices &&
+    navigator.mediaDevices.getUserMedia
   )
 }
 
@@ -19,71 +16,87 @@ export function isSpeechRecognitionSupported() {
   return isRecordingSupported()
 }
 
-function getSupportedMimeType() {
-  if (typeof MediaRecorder === 'undefined') return 'audio/webm'
-
-  const types = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/mp4',
-    'audio/wav'
-  ]
-
-  for (const type of types) {
-    if (MediaRecorder.isTypeSupported(type)) {
-      return type
-    }
-  }
-
-  return 'audio/webm'
-}
-
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const res = reader.result
-      if (typeof res === 'string') {
-        const base64String = res.includes(',') ? res.split(',')[1] : res
-        resolve(base64String)
-      } else {
-        resolve('')
-      }
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
+export function isRecording() {
+  return mediaRecorder && mediaRecorder.state === 'recording'
 }
 
 /**
- * Transcribe audio blob using Vercel Serverless proxy (/api/transcribe)
+ * Transcribe audio blob using direct Groq Whisper API (whisper-large-v3) with /api/transcribe fallback
  */
 export async function transcribeAudioWithWhisper(audioBlob) {
   if (!audioBlob || audioBlob.size === 0) {
-    throw new Error('Tidak ada data suara untuk ditranskripsi.')
+    throw new Error('Suara tidak terdengar jelas, silakan coba lagi.')
   }
 
+  const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
   const mimeType = audioBlob.type || 'audio/webm'
-  const audioBase64 = await blobToBase64(audioBlob)
+  const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
+  const file = new File([audioBlob], `speech.${ext}`, { type: mimeType })
 
-  const res = await fetch('/api/transcribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ audioBase64, mimeType })
-  })
+  // 1. Direct Groq Whisper API
+  if (apiKey) {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('model', 'whisper-large-v3')
+      formData.append('language', 'id')
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}))
-    throw new Error(errData.error || `Server transcribe error (${res.status})`)
+      const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: formData
+      })
+
+      if (whisperRes.ok) {
+        const whisperData = await whisperRes.json()
+        const transcript = whisperData.text?.trim() || ''
+        if (transcript) return transcript
+      } else {
+        const errText = await whisperRes.text().catch(() => '')
+        console.warn(`Direct Groq Whisper API returned ${whisperRes.status}: ${errText}`)
+      }
+    } catch (directErr) {
+      console.warn('Direct Groq Whisper failed, trying serverless proxy:', directErr.message)
+    }
   }
 
-  const { text } = await res.json()
-  if (!text || !text.trim()) {
-    throw new Error('Suara tidak terdeteksi jelas, silakan coba lagi.')
+  // 2. Serverless proxy fallback (/api/transcribe)
+  try {
+    const base64String = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const res = reader.result
+        if (typeof res === 'string') {
+          resolve(res.includes(',') ? res.split(',')[1] : res)
+        } else {
+          resolve('')
+        }
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(audioBlob)
+    })
+
+    if (base64String) {
+      const proxyRes = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioBase64: base64String, mimeType })
+      })
+
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json()
+        if (proxyData.text?.trim()) {
+          return proxyData.text.trim()
+        }
+      }
+    }
+  } catch (proxyErr) {
+    console.warn('Serverless proxy transcribe error:', proxyErr.message)
   }
 
-  return text.trim()
+  throw new Error('Suara tidak terdengar jelas atau API Whisper belum terkonfigurasi. Silakan coba lagi.')
 }
 
 /**
@@ -97,29 +110,26 @@ export async function startRecording() {
   cancelRecording()
 
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    })
-
-    const mimeType = getSupportedMimeType()
-    mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined)
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
     audioChunks = []
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        audioChunks.push(event.data)
-      }
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/mp4')
+      ? 'audio/mp4'
+      : ''
+
+    mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined)
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) audioChunks.push(e.data)
     }
 
     mediaRecorder.start(100)
-    isRecordingState = true
     return { mimeType }
   } catch (error) {
-    isRecordingState = false
     cancelRecording()
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       throw new Error(
@@ -145,9 +155,6 @@ export function stopRecording() {
     mediaRecorder.onstop = () => {
       if (mediaStream) {
         try {
-          if (mediaStream._autoStopTimer) {
-            clearTimeout(mediaStream._autoStopTimer)
-          }
           mediaStream.getTracks().forEach((track) => track.stop())
         } catch {
           // ignore
@@ -155,13 +162,12 @@ export function stopRecording() {
         mediaStream = null
       }
 
-      const mimeType = mediaRecorder ? mediaRecorder.mimeType : getSupportedMimeType()
+      const mimeType = mediaRecorder ? mediaRecorder.mimeType : 'audio/webm'
       const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' })
       audioChunks = []
-      isRecordingState = false
 
       if (!audioBlob || audioBlob.size === 0) {
-        reject(new Error('Tidak ada suara terdeteksi. Silakan coba bicara lagi.'))
+        reject(new Error('Suara tidak terdengar jelas, silakan coba lagi.'))
         return
       }
 
@@ -189,12 +195,8 @@ export function stopRecording() {
  * Cancel and cleanly release microphone stream tracks
  */
 export function cancelRecording() {
-  isRecordingState = false
   if (mediaStream) {
     try {
-      if (mediaStream._autoStopTimer) {
-        clearTimeout(mediaStream._autoStopTimer)
-      }
       mediaStream.getTracks().forEach((track) => track.stop())
     } catch {
       // ignore
@@ -203,10 +205,6 @@ export function cancelRecording() {
   }
   mediaRecorder = null
   audioChunks = []
-}
-
-export function isRecording() {
-  return isRecordingState
 }
 
 /**
@@ -222,14 +220,18 @@ export async function processTextCommand(text, currentTimeISO = new Date().toISO
 }
 
 /**
- * Stop recording, transcribe via /api/transcribe, and parse intent via Groq Llama 3
+ * Stop recording, transcribe via Groq Whisper, and parse intent via Groq Llama 3
  */
 export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new Date().toISOString()) {
   onStatusChange?.('⚡ Menghentikan rekaman...')
   const audioBlob = await stopRecording()
 
-  onStatusChange?.('⚡ Mengubah suara ke teks...')
+  onStatusChange?.('⚡ Mengubah suara ke teks via Groq Whisper...')
   const transcript = await transcribeAudioWithWhisper(audioBlob)
+
+  if (!transcript) {
+    throw new Error('Suara tidak terdengar jelas, silakan coba lagi.')
+  }
 
   onStatusChange?.(`🧠 Memproses: "${transcript}"...`)
   const result = await parseCommandWithAI(transcript, currentTimeISO)
@@ -238,62 +240,76 @@ export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new D
 }
 
 /**
- * Listen and process speech (starts recording, auto-stops after duration or processes immediately)
+ * Listen and process speech (starts recording, auto-stops after 4 seconds or processes immediately)
  */
 export async function listenAndProcessSpeech(onStatusChange) {
-  if (!isRecordingSupported()) {
-    throw new Error('Browser tidak mendukung perekaman audio.')
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY
+
+  if (!apiKey) {
+    throw new Error('VITE_GROQ_API_KEY belum disetel di environment variables!')
   }
 
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
   audioChunks = []
 
-  const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+  // Gunakan MIME type yang didukung browser
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : MediaRecorder.isTypeSupported('audio/webm')
     ? 'audio/webm'
     : MediaRecorder.isTypeSupported('audio/mp4')
-      ? 'audio/mp4'
-      : ''
+    ? 'audio/mp4'
+    : ''
 
   mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
 
   return new Promise((resolve, reject) => {
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        audioChunks.push(event.data)
-      }
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) audioChunks.push(e.data)
     }
 
     mediaRecorder.onstart = () => {
-      onStatusChange?.('🎙️ Mendengarkan suara Anda... (Bicara sekarang, berhenti otomatis dalam 5 dtk)')
+      onStatusChange?.('🎙️ Mendengarkan suara Anda... (Bicara sekarang)')
     }
 
     mediaRecorder.onstop = async () => {
       stream.getTracks().forEach((track) => track.stop())
-      onStatusChange?.('⚡ Mengubah suara ke teks...')
+      onStatusChange?.('⚡ Mengubah suara ke teks via Groq Whisper...')
 
       try {
         const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' })
-        const base64 = await blobToBase64(audioBlob)
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
+        const file = new File([audioBlob], `speech.${ext}`, { type: mimeType || 'audio/webm' })
 
-        const res = await fetch('/api/transcribe', {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('model', 'whisper-large-v3')
+        formData.append('language', 'id')
+
+        // Request langsung ke Groq Whisper
+        const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ audioBase64: base64, mimeType: mimeType || 'audio/webm' })
+          headers: {
+            Authorization: `Bearer ${apiKey.trim()}`
+          },
+          body: formData
         })
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}))
-          throw new Error(errData.error || `Server transcribe error (${res.status})`)
+        if (!whisperRes.ok) {
+          const errText = await whisperRes.text()
+          throw new Error(`Whisper API gagal (${whisperRes.status}): ${errText}`)
         }
 
-        const { text } = await res.json()
-        if (!text || !text.trim()) {
-          throw new Error('Suara tidak terdeteksi jelas, silakan coba lagi.')
+        const whisperData = await whisperRes.json()
+        const transcript = whisperData.text?.trim() || ''
+
+        if (!transcript) {
+          throw new Error('Suara tidak terdengar jelas, silakan coba lagi.')
         }
 
-        onStatusChange?.(`🧠 Memproses: "${text}"...`)
-        const result = await parseCommandWithAI(text, new Date().toISOString())
-        resolve({ transcript: text, result })
+        onStatusChange?.(`🧠 Memproses: "${transcript}"...`)
+        const result = await parseCommandWithAI(transcript, new Date().toISOString())
+        resolve({ transcript, result })
       } catch (err) {
         reject(err)
       }
@@ -301,11 +317,11 @@ export async function listenAndProcessSpeech(onStatusChange) {
 
     mediaRecorder.start()
 
-    // Auto-stop recording after 4.5 seconds of speaking
+    // Hentikan rekaman otomatis setelah 4 detik bicara
     setTimeout(() => {
       if (mediaRecorder && mediaRecorder.state === 'recording') {
         mediaRecorder.stop()
       }
-    }, 4500)
+    }, 4000)
   })
 }
