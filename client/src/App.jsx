@@ -630,6 +630,49 @@ export default function App() {
     activeTab === 'all' &&
     priorityFilter === 'all'
 
+  // Quick Task Add Handler for Focus Session
+  const handleQuickAddTask = useCallback(
+    async ({ title, category = 'General', priority = 'medium' }) => {
+      const validation = validateTaskTitle(title)
+      if (!validation.isValid) {
+        showToast(validation.error, 'error')
+        return null
+      }
+
+      const cleanTitle = validation.sanitized
+      const tempId = `temp-${Date.now()}`
+      const optimistic = {
+        id: tempId,
+        title: cleanTitle,
+        priority,
+        category,
+        order: 0,
+        completed: false,
+        created_at: new Date().toISOString()
+      }
+
+      setTasks((prev) => [optimistic, ...prev])
+
+      try {
+        const created = await api.createTask({
+          title: cleanTitle,
+          priority,
+          category,
+          userId: session?.user?.id
+        })
+        setTasks((prev) => prev.map((t) => (t.id === tempId ? created : t)))
+        showToast(`Added "${cleanTitle}" to ${category}`)
+        loadActivities()
+        return created
+      } catch (err) {
+        setTasks((prev) => prev.filter((t) => t.id !== tempId))
+        showToast(`Failed to add task: ${err.message}`, 'error')
+        return null
+      }
+    },
+    [session, showToast, loadActivities]
+  )
+
   // If waiting for auth check
   if (!authInitialized) {
     return (
@@ -668,12 +711,18 @@ export default function App() {
     <div className="app-container">
       {/* Fullscreen Zen Pomodoro Overlay */}
       {viewMode === 'fullscreen' && (
-        <FocusSession onToggleTask={handleToggleTask} />
+        <FocusSession
+          onToggleTask={handleToggleTask}
+          onQuickAddTask={handleQuickAddTask}
+        />
       )}
 
       {/* Floating Picture-in-Picture (PiP) Mini Player */}
       {viewMode === 'minimized' && (
-        <FocusMiniPlayer onToggleTask={handleToggleTask} />
+        <FocusMiniPlayer
+          onToggleTask={handleToggleTask}
+          onQuickAddTask={handleQuickAddTask}
+        />
       )}
 
       {/* Toast Notification Container */}

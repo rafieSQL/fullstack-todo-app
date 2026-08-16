@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import * as api from '../api.js'
 import { FocusContext } from './FocusContextInstance.js'
-import { MODES } from './focusConstants.js'
-import { formatFocusTime } from './focusConstants.js'
+import { MODES, formatFocusTime } from './focusConstants.js'
 
 export function FocusProvider({ children }) {
   // Session UI View Mode: 'closed' | 'fullscreen' | 'minimized'
@@ -10,22 +9,42 @@ export function FocusProvider({ children }) {
 
   // Timer & Session state
   const [mode, setMode] = useState('focus')
-  const [timeLeft, setTimeLeft] = useState(MODES.focus.seconds)
+  const [customMinutes, setCustomMinutes] = useState(() => {
+    const saved = localStorage.getItem('focus_custom_minutes')
+    return saved ? Math.max(1, Math.min(180, parseInt(saved, 10))) : 25
+  })
+  const [timeLeft, setTimeLeft] = useState(() => {
+    const saved = localStorage.getItem('focus_custom_minutes')
+    const mins = saved ? Math.max(1, Math.min(180, parseInt(saved, 10))) : 25
+    return mins * 60
+  })
   const [isRunning, setIsRunning] = useState(false)
   const [sessionGoal, setSessionGoal] = useState('')
   const [activeTask, setActiveTask] = useState(null)
 
-  // Audio State
+  // Audio State (Ambient + Mechanical Ticking + Completion Alarm)
   const [ambientPreset, setAmbientPreset] = useState('none')
   const [ambientVolume, setAmbientVolume] = useState(0.4)
   const [isTickingEnabled, setIsTickingEnabled] = useState(false)
   const [tickingVolume, setTickingVolume] = useState(0.3)
+  const [selectedAlarm, setSelectedAlarm] = useState(() => {
+    return localStorage.getItem('focus_alarm_sound') || 'gentle_chime'
+  })
 
   // Web Audio Context & Node Refs (Persistent across view changes)
   const audioCtxRef = useRef(null)
   const ambientMasterGainRef = useRef(null)
   const tickMasterGainRef = useRef(null)
   const ambientNodesRef = useRef([])
+
+  // Persist custom settings
+  useEffect(() => {
+    localStorage.setItem('focus_custom_minutes', customMinutes.toString())
+  }, [customMinutes])
+
+  useEffect(() => {
+    localStorage.setItem('focus_alarm_sound', selectedAlarm)
+  }, [selectedAlarm])
 
   // Initialize or resume persistent AudioContext
   const getAudioContext = useCallback(() => {
@@ -218,39 +237,100 @@ export function FocusProvider({ children }) {
     }
   }, [getAudioContext])
 
-  // Play dual-tone completion chime
-  const playCompletionChime = useCallback(() => {
-    try {
-      const ctx = getAudioContext()
-      if (!ctx) return
+  // 5 Procedural Completion Alarms (Synthesized with Web Audio API)
+  const playAlarmSound = useCallback(
+    (alarmId = selectedAlarm) => {
+      try {
+        const ctx = getAudioContext()
+        if (!ctx) return
+        const now = ctx.currentTime
 
-      const now = ctx.currentTime
-
-      const osc1 = ctx.createOscillator()
-      const gain1 = ctx.createGain()
-      osc1.type = 'sine'
-      osc1.frequency.setValueAtTime(880, now)
-      gain1.gain.setValueAtTime(0.3, now)
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3)
-      osc1.connect(gain1)
-      gain1.connect(ctx.destination)
-      osc1.start(now)
-      osc1.stop(now + 0.3)
-
-      const osc2 = ctx.createOscillator()
-      const gain2 = ctx.createGain()
-      osc2.type = 'sine'
-      osc2.frequency.setValueAtTime(1320, now + 0.15)
-      gain2.gain.setValueAtTime(0.35, now + 0.15)
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6)
-      osc2.connect(gain2)
-      gain2.connect(ctx.destination)
-      osc2.start(now + 0.15)
-      osc2.stop(now + 0.6)
-    } catch (err) {
-      console.warn('Audio chime error:', err)
-    }
-  }, [getAudioContext])
+        if (alarmId === 'gentle_chime') {
+          // 1. Gentle Chime: Warm C5-E5-G5-C6 arpeggio with smooth decay
+          const notes = [523.25, 659.25, 783.99, 1046.50]
+          notes.forEach((freq, index) => {
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.type = 'sine'
+            osc.frequency.setValueAtTime(freq, now + index * 0.16)
+            gain.gain.setValueAtTime(0, now + index * 0.16)
+            gain.gain.linearRampToValueAtTime(0.3, now + index * 0.16 + 0.02)
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.16 + 0.9)
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.start(now + index * 0.16)
+            osc.stop(now + index * 0.16 + 0.9)
+          })
+        } else if (alarmId === 'digital_beep') {
+          // 2. Digital Beep: Classic 880Hz triple electronic chime
+          ;[0, 0.12, 0.24].forEach((offset) => {
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.type = 'square'
+            osc.frequency.setValueAtTime(880, now + offset)
+            gain.gain.setValueAtTime(0.18, now + offset)
+            gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.07)
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.start(now + offset)
+            osc.stop(now + offset + 0.07)
+          })
+        } else if (alarmId === 'singing_bowl') {
+          // 3. Zen Singing Bowl: Deep 261Hz fundamental + 523Hz/785Hz harmonics with 3.5s smooth resonance
+          const harmonics = [
+            { freq: 261.63, amp: 0.35, decay: 3.5 },
+            { freq: 523.25, amp: 0.2, decay: 2.8 },
+            { freq: 784.88, amp: 0.12, decay: 2.0 }
+          ]
+          harmonics.forEach(({ freq, amp, decay }) => {
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.type = 'sine'
+            osc.frequency.setValueAtTime(freq, now)
+            gain.gain.setValueAtTime(amp, now)
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + decay)
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.start(now)
+            osc.stop(now + decay)
+          })
+        } else if (alarmId === 'mechanical_bell') {
+          // 4. Mechanical Bell: Metallic inharmonic ring (1200Hz + 1940Hz + 3120Hz)
+          const freqs = [1200, 1940, 3120]
+          freqs.forEach((freq, i) => {
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.type = i === 0 ? 'sine' : 'triangle'
+            osc.frequency.setValueAtTime(freq, now)
+            gain.gain.setValueAtTime(0.25 / (i + 1), now)
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8)
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.start(now)
+            osc.stop(now + 1.8)
+          })
+        } else if (alarmId === 'radar_pulse') {
+          // 5. Subtle Radar Pulse: Sonar sweep (950Hz -> 420Hz)
+          ;[0, 0.55].forEach((offset) => {
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.type = 'sine'
+            osc.frequency.setValueAtTime(950, now + offset)
+            osc.frequency.exponentialRampToValueAtTime(420, now + offset + 0.35)
+            gain.gain.setValueAtTime(0.3, now + offset)
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.4)
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.start(now + offset)
+            osc.stop(now + offset + 0.4)
+          })
+        }
+      } catch (err) {
+        console.warn('Audio alarm synthesis notice:', err)
+      }
+    },
+    [getAudioContext, selectedAlarm]
+  )
 
   // Sync volume updates
   useEffect(() => {
@@ -265,18 +345,45 @@ export function FocusProvider({ children }) {
     }
   }, [tickingVolume])
 
+  // Get total duration for active mode
+  const getModeDurationSeconds = useCallback(
+    (targetMode = mode) => {
+      if (targetMode === 'focus') {
+        return customMinutes * 60
+      }
+      return (MODES[targetMode]?.defaultMinutes || 5) * 60
+    },
+    [mode, customMinutes]
+  )
+
   // Switch timer mode
-  const switchMode = useCallback((newMode) => {
-    setMode(newMode)
-    setTimeLeft(MODES[newMode].seconds)
+  const switchMode = useCallback(
+    (newMode) => {
+      setMode(newMode)
+      if (newMode === 'focus') {
+        setTimeLeft(customMinutes * 60)
+      } else {
+        setTimeLeft((MODES[newMode]?.defaultMinutes || 5) * 60)
+      }
+      setIsRunning(false)
+    },
+    [customMinutes]
+  )
+
+  // Set custom focus duration (in minutes, 1 - 180)
+  const setCustomDuration = useCallback((minutes) => {
+    const clamped = Math.max(1, Math.min(180, Math.round(minutes)))
+    setCustomMinutes(clamped)
+    setMode('focus')
+    setTimeLeft(clamped * 60)
     setIsRunning(false)
   }, [])
 
   // Reset timer
   const resetTimer = useCallback(() => {
-    setTimeLeft(MODES[mode].seconds)
+    setTimeLeft(getModeDurationSeconds(mode))
     setIsRunning(false)
-  }, [mode])
+  }, [mode, getModeDurationSeconds])
 
   // Toggle Play/Pause
   const togglePlay = useCallback(() => {
@@ -299,12 +406,12 @@ export function FocusProvider({ children }) {
       setActiveTask(task)
       setSessionGoal(customTitle || task?.title || 'Deep Work Session')
       setMode('focus')
-      setTimeLeft(MODES.focus.seconds)
+      setTimeLeft(customMinutes * 60)
       setViewMode('fullscreen')
       setIsRunning(true)
       getAudioContext()
     },
-    [getAudioContext]
+    [customMinutes, getAudioContext]
   )
 
   // Minimize session to floating PiP mini-player
@@ -339,14 +446,14 @@ export function FocusProvider({ children }) {
         setTimeLeft((prev) => {
           if (prev <= 1) {
             setIsRunning(false)
-            playCompletionChime()
+            playAlarmSound()
 
             // Record completion in Supabase activity log
             const titleLabel = sessionGoal ? ` on "${sessionGoal}"` : ''
             api
               .logActivity({
                 type: 'focus-complete',
-                message: `Completed a ${MODES[mode].label} Session${titleLabel}`,
+                message: `Completed a ${MODES[mode]?.label || 'Focus'} Session${titleLabel}`,
                 details: { taskId: activeTask?.id, mode }
               })
               .catch(() => {})
@@ -361,7 +468,7 @@ export function FocusProvider({ children }) {
     return () => {
       if (intervalId) clearInterval(intervalId)
     }
-  }, [isRunning, isTickingEnabled, mode, sessionGoal, activeTask, playMechanicalTick, playCompletionChime])
+  }, [isRunning, isTickingEnabled, mode, sessionGoal, activeTask, playMechanicalTick, playAlarmSound])
 
   // Document Title Synchronization
   useEffect(() => {
@@ -370,7 +477,7 @@ export function FocusProvider({ children }) {
     const originalTitle = document.title
     const timeStr = formatFocusTime(timeLeft)
     const goalText = sessionGoal ? ` • ${sessionGoal}` : ''
-    document.title = `(${timeStr}) ${MODES[mode].label}${goalText} — Task Registry`
+    document.title = `(${timeStr}) ${MODES[mode]?.label || 'Focus'}${goalText} — Task Registry`
 
     return () => {
       document.title = originalTitle
@@ -390,7 +497,9 @@ export function FocusProvider({ children }) {
   const value = {
     viewMode,
     mode,
+    customMinutes,
     timeLeft,
+    totalSeconds: getModeDurationSeconds(mode),
     isRunning,
     sessionGoal,
     activeTask,
@@ -398,6 +507,7 @@ export function FocusProvider({ children }) {
     ambientVolume,
     isTickingEnabled,
     tickingVolume,
+    selectedAlarm,
     // Actions
     startSession,
     minimizeSession,
@@ -406,12 +516,15 @@ export function FocusProvider({ children }) {
     togglePlay,
     resetTimer,
     switchMode,
+    setCustomDuration,
     setSessionGoal,
     setActiveTask,
     changeAmbientPreset,
     setAmbientVolume,
     setIsTickingEnabled,
-    setTickingVolume
+    setTickingVolume,
+    setSelectedAlarm,
+    playAlarmSound
   }
 
   return <FocusContext.Provider value={value}>{children}</FocusContext.Provider>

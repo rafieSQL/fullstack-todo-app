@@ -11,11 +11,12 @@
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  padding: 28px 24px;
+  padding: 24px 24px;
   background-color: var(--bg-page);
   color: var(--text-primary);
   animation: focus-fade-in 0.2s ease-out;
   user-select: none;
+  overflow-y: auto;
 }
 
 @keyframes focus-fade-in {
@@ -32,11 +33,12 @@
 /* Header */
 .focus-header {
   width: 100%;
-  max-width: 860px;
+  max-width: 900px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .focus-modes-group {
@@ -94,18 +96,100 @@
   border-color: var(--border-dark);
 }
 
+/* Duration Customization Controls */
+.focus-duration-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: -6px;
+}
+
+.duration-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.duration-preset-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.duration-preset-chip:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.duration-preset-chip.active {
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  border-color: var(--text-primary);
+}
+
+.duration-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+
+.btn-stepper {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.btn-stepper:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.stepper-input {
+  width: 38px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
 /* Center Stage (Draggable & Customizable Positioning) */
 .focus-center-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 20px;
   max-width: 680px;
   width: 100%;
   text-align: center;
   position: relative;
   transition: transform 0.05s ease-out;
+  margin: auto 0;
 }
 
 .focus-drag-handle-bar {
@@ -283,15 +367,68 @@
   white-space: nowrap;
 }
 
-/* Footer & Ambient Sound Control */
+/* In-Session Quick Task Creation Bar */
+.focus-quick-task-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.quick-task-input {
+  flex: 1;
+  font-size: 13px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+}
+
+.quick-task-input::placeholder {
+  color: var(--text-muted);
+}
+
+.quick-task-cat-select {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  outline: none;
+  cursor: pointer;
+}
+
+.btn-quick-add {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background-color: var(--accent-primary);
+  color: var(--accent-contrast);
+  transition: opacity 0.15s;
+}
+
+.btn-quick-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Footer & Ambient Sound / Alarm Settings */
 .focus-footer {
   width: 100%;
-  max-width: 860px;
+  max-width: 900px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding-top: 16px;
+  gap: 12px;
+  padding-top: 14px;
   border-top: 1px solid var(--border-light);
 }
 
@@ -301,7 +438,7 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
   padding: 10px 16px;
   background-color: var(--bg-surface);
@@ -361,9 +498,60 @@
 }
 
 .volume-slider {
-  width: 70px;
+  width: 65px;
   accent-color: var(--text-primary);
   cursor: pointer;
+}
+
+/* Alarm Selector Bar */
+.alarm-selector-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 16px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.alarm-select-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alarm-select {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 8px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+}
+
+.btn-preview-alarm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.btn-preview-alarm:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 /* Ticking Toggle Chip */
@@ -405,7 +593,7 @@
 }
 
 /* ==========================================================================
-   Floating Picture-in-Picture (PiP) Mini-Player Widget (Draggable & Resizable)
+   Floating Picture-in-Picture (PiP) Mini-Player Widget
    ========================================================================== */
 
 .focus-mini-player {
@@ -506,11 +694,11 @@
 
 /* Mini Player Body */
 .mini-player-body {
-  padding: 12px 14px;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .mini-body-left {
@@ -534,7 +722,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 .mini-controls-right {
@@ -547,8 +735,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background-color: var(--text-primary);
   color: var(--accent-contrast);
@@ -561,4 +749,13 @@
 
 .btn-mini-play:active {
   transform: scale(0.95);
+}
+
+/* Mini Quick Task Form */
+.mini-quick-task-row {
+  padding: 6px 12px 10px 12px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

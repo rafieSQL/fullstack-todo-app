@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useFocus } from '../context/useFocus.js'
 import { formatFocusTime, MODES } from '../context/focusConstants.js'
+import { validateTaskTitle } from '../utils/sanitize.js'
 import './FocusSession.css'
 
-export default function FocusMiniPlayer({ onToggleTask }) {
+export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
   const {
     mode,
     timeLeft,
@@ -12,16 +13,22 @@ export default function FocusMiniPlayer({ onToggleTask }) {
     activeTask,
     togglePlay,
     expandSession,
-    endSession
+    endSession,
+    setActiveTask,
+    setSessionGoal
   } = useFocus()
 
   // Draggable position state
   const [position, setPosition] = useState(() => ({
     x: Math.max(20, (typeof window !== 'undefined' ? window.innerWidth : 1000) - 344),
-    y: Math.max(20, (typeof window !== 'undefined' ? window.innerHeight : 800) - 130)
+    y: Math.max(20, (typeof window !== 'undefined' ? window.innerHeight : 800) - 140)
   }))
 
   const [isDragging, setIsDragging] = useState(false)
+  const [showQuickTask, setShowQuickTask] = useState(false)
+  const [quickTitle, setQuickTitle] = useState('')
+  const [isAdding, setIsAdding] = useState(false)
+
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const playerRef = useRef(null)
 
@@ -39,7 +46,7 @@ export default function FocusMiniPlayer({ onToggleTask }) {
 
   // Drag start handler
   const handleMouseDown = (e) => {
-    if (e.target.closest('button')) return // Don't start drag on buttons
+    if (e.target.closest('button') || e.target.closest('input')) return
 
     setIsDragging(true)
     dragOffsetRef.current = {
@@ -56,7 +63,6 @@ export default function FocusMiniPlayer({ onToggleTask }) {
       const newX = e.clientX - dragOffsetRef.current.x
       const newY = e.clientY - dragOffsetRef.current.y
 
-      // Clamp within viewport
       const clampedX = Math.max(10, Math.min(newX, window.innerWidth - 340))
       const clampedY = Math.max(10, Math.min(newY, window.innerHeight - 120))
 
@@ -83,6 +89,34 @@ export default function FocusMiniPlayer({ onToggleTask }) {
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
+  // Handle Quick Task submit in Mini-Player
+  const handleQuickSubmit = async (e) => {
+    e.preventDefault()
+    const validation = validateTaskTitle(quickTitle)
+    if (!validation.isValid || isAdding) return
+
+    setIsAdding(true)
+    try {
+      if (onQuickAddTask) {
+        const created = await onQuickAddTask({
+          title: validation.sanitized,
+          category: 'General',
+          priority: 'medium'
+        })
+        if (created) {
+          setActiveTask(created)
+          setSessionGoal(created.title)
+        }
+      }
+      setQuickTitle('')
+      setShowQuickTask(false)
+    } catch (err) {
+      console.error('Failed to quick add in mini-player:', err)
+    } finally {
+      setIsAdding(false)
+    }
+  }
+
   return (
     <div
       ref={playerRef}
@@ -106,6 +140,20 @@ export default function FocusMiniPlayer({ onToggleTask }) {
         </div>
 
         <div className="mini-header-actions">
+          {/* Quick Task Add Toggle */}
+          <button
+            type="button"
+            className={`btn-mini-action ${showQuickTask ? 'active' : ''}`}
+            onClick={() => setShowQuickTask(!showQuickTask)}
+            title="Quick add task to registry"
+            aria-label="Quick add task"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+
           {/* Expand to Fullscreen */}
           <button
             type="button"
@@ -188,6 +236,29 @@ export default function FocusMiniPlayer({ onToggleTask }) {
           </button>
         </div>
       </div>
+
+      {/* Expandable Quick Task Row in Mini-Player */}
+      {showQuickTask && (
+        <form onSubmit={handleQuickSubmit} className="mini-quick-task-row">
+          <input
+            type="text"
+            className="quick-task-input"
+            placeholder="+ Add thought/task... (↵)"
+            value={quickTitle}
+            onChange={(e) => setQuickTitle(e.target.value)}
+            maxLength={200}
+            disabled={isAdding}
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="btn-quick-add"
+            disabled={!quickTitle.trim() || isAdding}
+          >
+            {isAdding ? '...' : 'Add'}
+          </button>
+        </form>
+      )}
     </div>
   )
 }
