@@ -648,6 +648,18 @@ export default function App() {
     return { total, completed, pending, highPriorityPending }
   }, [tasks])
 
+  // User display name with username fallback logic
+  const displayName = useMemo(() => {
+    if (!session?.user) return 'Guest Operator'
+    return (
+      session.user.user_metadata?.username ||
+      session.user.user_metadata?.full_name ||
+      session.user.email?.split('@')[0] ||
+      'Operator'
+    )
+  }, [session])
+
+
   // Category item counts
   const categoryCounts = useMemo(() => {
     const counts = { all: tasks.length }
@@ -876,8 +888,8 @@ export default function App() {
         <div className="header-actions">
           {/* 1. Account / Session Pill */}
           {session ? (
-            <div className="user-session-group" title={`Signed in as ${session.user?.email}`}>
-              <span className="user-email-badge">{session.user?.email}</span>
+            <div className="user-session-group" title={`Signed in as ${displayName} (${session.user?.email || ''})`}>
+              <span className="user-email-badge">@{displayName}</span>
               <button type="button" className="btn-signout" onClick={handleSignOut}>
                 Sign Out
               </button>

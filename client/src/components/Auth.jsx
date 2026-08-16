@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { supabase, isSupabaseConfigured } from '../supabaseClient.js'
-import { sanitizeEmail } from '../utils/sanitize.js'
+import { sanitizeEmail, sanitizeUsername } from '../utils/sanitize.js'
 
 export default function Auth({ onDemoAccess }) {
   const [authMode, setAuthMode] = useState('sign_in') // 'sign_in' | 'sign_up' | 'magic_link'
   const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState(null)
@@ -20,6 +21,18 @@ export default function Auth({ onDemoAccess }) {
     if (!cleanedEmail || !cleanedEmail.includes('@') || !cleanedEmail.includes('.')) {
       setErrorMessage('Please provide a valid email address.')
       return
+    }
+
+    if (authMode === 'sign_up') {
+      const cleanedUsername = sanitizeUsername(username)
+      if (!cleanedUsername || cleanedUsername.length < 2) {
+        setErrorMessage('Username must contain at least 2 characters.')
+        return
+      }
+      if (cleanedUsername.length > 50) {
+        setErrorMessage('Username cannot exceed 50 characters.')
+        return
+      }
     }
 
     if (authMode !== 'magic_link') {
@@ -53,12 +66,18 @@ export default function Auth({ onDemoAccess }) {
           throw new Error('Invalid email or password credentials.')
         }
       } else if (authMode === 'sign_up') {
+        const cleanedUsername = sanitizeUsername(username)
         const { error, data } = await supabase.auth.signUp({
           email: cleanedEmail,
-          password
+          password,
+          options: {
+            data: {
+              username: cleanedUsername
+            }
+          }
         })
         if (error) {
-          throw new Error('Unable to complete registration. Please verify details.')
+          throw new Error(error.message || 'Unable to complete registration. Please verify details.')
         }
         if (data?.user && !data?.session) {
           setSuccessMessage('Verification link sent. Check your inbox to confirm your account.')
@@ -120,6 +139,25 @@ export default function Auth({ onDemoAccess }) {
 
         {/* Form */}
         <form onSubmit={handleAuth} className="auth-form" noValidate>
+          {authMode === 'sign_up' && (
+            <div className="auth-field">
+              <label htmlFor="auth-username" className="auth-label">
+                Username
+              </label>
+              <input
+                id="auth-username"
+                type="text"
+                className="auth-input"
+                placeholder="e.g. Hormozi"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                maxLength={50}
+                required
+                autoFocus
+              />
+            </div>
+          )}
+
           <div className="auth-field">
             <label htmlFor="auth-email" className="auth-label">
               Email Address
@@ -133,7 +171,7 @@ export default function Auth({ onDemoAccess }) {
               onChange={(e) => setEmail(e.target.value)}
               maxLength={100}
               required
-              autoFocus
+              autoFocus={authMode !== 'sign_up'}
             />
           </div>
 

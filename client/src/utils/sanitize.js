@@ -74,3 +74,18 @@ export function sanitizeEmail(email) {
     .toLowerCase()
     .slice(0, 100)
 }
+
+/**
+ * Sanitize and validate username
+ *
+ * @param {string} username
+ * @returns {string}
+ */
+export function sanitizeUsername(username) {
+  if (typeof username !== 'string') return ''
+  return username
+    .replace(CONTROL_CHARS_REGEX, '')
+    .trim()
+    .slice(0, 50)
+}
+
