@@ -4,11 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build --prefix client",
-    "dev": "npm run dev:all",
-    "dev:all": "node scripts/start-dev.js",
-    "client": "npm run dev --prefix client",
-    "server": "npm run dev --prefix server",
-    "install:all": "npm install --prefix server && npm install --prefix client"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   }
 }
