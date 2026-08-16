@@ -939,19 +939,41 @@ export default function App() {
         }
       }
 
-      // 1. Aksi HAPUS MASSAL (BULK_DELETE_TASK)
-      if (
+      // Safety Net Pengecekan Bulk Delete & Duplikat
+      const userTextLower = (transcript || '').toLowerCase()
+      const isBulkIntent =
         action === 'BULK_DELETE_TASK' ||
         action === 'BULK_DELETE' ||
-        (Array.isArray(result.target_task_ids) && result.target_task_ids.length > 0)
-      ) {
-        const idsToDelete = (
-          Array.isArray(result.target_task_ids) && result.target_task_ids.length > 0
-            ? result.target_task_ids
+        userTextLower.includes('semua') ||
+        userTextLower.includes('all') ||
+        userTextLower.includes('bersihkan') ||
+        userTextLower.includes('duplikat')
+
+      if (isBulkIntent || action === 'DELETE_TASK' || action === 'DELETE') {
+        let idsToDelete = (result.target_task_ids || []).map(String)
+
+        // Jika hanya 1 ID dikirim atau target_task_id ada, tapi user berniat hapus semua atau ada duplikat kembar
+        if (idsToDelete.length === 0) {
+          const targetTask = targetId
+            ? tasks.find((t) => String(t.id || t._id) === String(targetId))
             : result.title
-            ? tasks.filter((t) => t.title.toLowerCase().includes(result.title.toLowerCase())).map((t) => t.id)
-            : []
-        ).map(String)
+            ? tasks.find((t) => t.title.toLowerCase().includes(result.title.toLowerCase()))
+            : null
+
+          if (targetTask) {
+            const sameTitleTasks = tasks.filter(
+              (t) =>
+                (t.title || '').trim().toLowerCase() ===
+                (targetTask.title || '').trim().toLowerCase()
+            )
+
+            if (isBulkIntent || sameTitleTasks.length > 1) {
+              idsToDelete = sameTitleTasks.map((t) => String(t.id || t._id))
+            } else {
+              idsToDelete = [String(targetTask.id || targetTask._id)]
+            }
+          }
+        }
 
         if (idsToDelete.length > 0) {
           // 1. LANGSUNG HAPUS DARI TAMPILAN (UI Instant / 0 Detik Optimistic Update)
@@ -974,37 +996,18 @@ export default function App() {
             loadActivities()
           })
 
-          const reply = replyMsg || `Siap bro, ${idsToDelete.length} tugas berhasil dihapus sekaligus.`
+          const reply =
+            replyMsg ||
+            (idsToDelete.length > 1
+              ? `Siap bro, ${idsToDelete.length} tugas berhasil dihapus sekaligus.`
+              : 'Siap bro, tugas berhasil dihapus.')
+
           sfx.playSuccess()
           setInterimVoiceText(`✓ ${reply}`)
           showToast(`🤝 Partner: ${reply}`)
           safeSpeakBack(reply)
         } else {
           const fallbackReply = replyMsg || 'Tidak ada tugas yang cocok untuk dihapus.'
-          setInterimVoiceText(`⚠️ ${fallbackReply}`)
-          showToast(`🤝 Partner: ${fallbackReply}`, 'info')
-          safeSpeakBack(fallbackReply)
-        }
-        return
-      }
-
-      // 2. Aksi HAPUS TUNGGAL (DELETE_TASK)
-      if (action === 'DELETE_TASK' || action === 'DELETE') {
-        const targetTask = targetId
-          ? tasks.find((t) => t.id === targetId)
-          : result.title
-          ? tasks.find((t) => t.title.toLowerCase().includes(result.title.toLowerCase()))
-          : null
-
-        if (targetTask) {
-          await handleDeleteTask(targetTask)
-          const reply = replyMsg || `Siap bro, tugas "${targetTask.title}" berhasil dihapus.`
-          sfx.playSuccess()
-          setInterimVoiceText(`✓ ${reply}`)
-          showToast(`🤝 Partner: ${reply}`)
-          safeSpeakBack(reply)
-        } else {
-          const fallbackReply = replyMsg || 'Tugas yang ingin dihapus tidak ditemukan.'
           setInterimVoiceText(`⚠️ ${fallbackReply}`)
           showToast(`🤝 Partner: ${fallbackReply}`, 'info')
           safeSpeakBack(fallbackReply)
