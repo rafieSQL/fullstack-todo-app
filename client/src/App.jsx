@@ -132,6 +132,7 @@ export default function App() {
   const taskInputRef = useRef(null)
   const searchInputRef = useRef(null)
   const editInputRef = useRef(null)
+  const isProcessingVoiceRef = useRef(false)
 
   // Theme synchronization effect
   useEffect(() => {
@@ -1185,14 +1186,14 @@ export default function App() {
     [partnerPromptInput, getActiveContextTasks, executePartnerAction, showToast]
   )
 
-  // Partner Voice Agent - Click Start / Click Stop Native Recording with Gemini Audio Transcription
+  // Partner Voice Agent - Click Start / Click Stop Native Recording with Groq Whisper & Llama
   const handleTogglePartner = useCallback(async () => {
     if (!isRecordingSupported()) {
       setIsPartnerTextPromptOpen(true)
       return
     }
 
-    if (isPartnerProcessing) return
+    if (isProcessingVoiceRef.current || isPartnerProcessing) return
 
     if (!isPartnerRecording) {
       setIsPartnerRecording(true)
@@ -1205,6 +1206,7 @@ export default function App() {
         onError: (err) => {
           setIsPartnerRecording(false)
           setIsPartnerProcessing(false)
+          isProcessingVoiceRef.current = false
           sfx.playDeactivate()
           setIsPartnerTextPromptOpen(true)
           showToast(err.message || 'Gagal merekam suara.', 'warning')
@@ -1212,58 +1214,61 @@ export default function App() {
         }
       })
     } else {
+      isProcessingVoiceRef.current = true
       setIsPartnerRecording(false)
       setIsPartnerProcessing(true)
-      setInterimVoiceText('⏳ Memproses audio via Gemini...')
+      setInterimVoiceText('⏳ Memproses audio via Groq...')
       sfx.playDeactivate()
 
-      const transcribedText = await stopRecording({
-        onStatusChange: (status) => setInterimVoiceText(status),
-        onError: (err) => {
-          showToast(err.message || 'Gagal mentranskripsi.', 'warning')
-        }
-      })
-
-      if (transcribedText && transcribedText.trim()) {
-        console.log('🎙️ Transcribed Audio:', transcribedText)
-        showToast(`🎙️ Mendengar: "${transcribedText}"`, 'info')
-        setInterimVoiceText(`🧠 Memproses: "${transcribedText}"...`)
-        try {
-          const result = await parseCommandWithAI(
-            transcribedText,
-            new Date().toISOString(),
-            null,
-            getActiveContextTasks()
-          )
-          await executePartnerAction(result, transcribedText)
-        } catch (err) {
-          console.warn('Partner parse error:', err.message)
-          sfx.playDeactivate()
-          if (err.message && err.message.includes('TIMEOUT')) {
-            showToast('⏳ Partner timeout. Jaringan lambat, coba ulangi lagi.', 'error')
-          } else {
-            showToast(`❌ ${err.message || 'Gagal memproses suara'}`, 'error')
+      try {
+        const transcribedText = await stopRecording({
+          onStatusChange: (status) => setInterimVoiceText(status),
+          onError: (err) => {
+            showToast(err.message || 'Gagal mentranskripsi.', 'warning')
           }
-          setInterimVoiceText(`Error: ${err.message}`)
-        } finally {
-          setIsPartnerProcessing(false)
-          setTimeout(() => {
-            setInterimVoiceText('')
-          }, 3500)
+        })
+
+        if (transcribedText && transcribedText.trim()) {
+          console.log('🎙️ Transcribed Audio:', transcribedText)
+          showToast(`🎙️ Mendengar: "${transcribedText}"`, 'info')
+          setInterimVoiceText(`🧠 Memproses: "${transcribedText}"...`)
+          try {
+            const result = await parseCommandWithAI(
+              transcribedText,
+              new Date().toISOString(),
+              null,
+              getActiveContextTasks()
+            )
+            await executePartnerAction(result, transcribedText)
+          } catch (err) {
+            console.warn('Partner parse error:', err.message)
+            sfx.playDeactivate()
+            if (err.message && err.message.includes('TIMEOUT')) {
+              showToast('⏳ Partner timeout. Jaringan lambat, coba ulangi lagi.', 'error')
+            } else {
+              showToast(`❌ ${err.message || 'Gagal memproses suara'}`, 'error')
+            }
+            setInterimVoiceText(`Error: ${err.message}`)
+          }
+        } else {
+          setInterimVoiceText('Suara tidak terdeteksi. Silakan coba lagi.')
+          showToast('Suara tidak terdengar jelas, silakan coba lagi.', 'info')
         }
-      } else {
+      } catch (voiceErr) {
+        console.error('Voice processing error:', voiceErr)
+      } finally {
         setIsPartnerProcessing(false)
-        setInterimVoiceText('Suara tidak terdeteksi. Silakan coba lagi.')
-        showToast('Suara tidak terdengar jelas, silakan coba lagi.', 'info')
         setTimeout(() => {
+          isProcessingVoiceRef.current = false
           setInterimVoiceText('')
-        }, 3000)
+        }, 1000)
       }
     }
   }, [
     isPartnerRecording,
     isPartnerProcessing,
     tasks,
+    getActiveContextTasks,
     executePartnerAction,
     showToast
   ])

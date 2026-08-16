@@ -219,8 +219,8 @@ export function startVoiceListening({
   if (SpeechRecognitionClass) {
     try {
       recognition = new SpeechRecognitionClass()
-      recognition.continuous = true
-      recognition.interimResults = true
+      recognition.continuous = false
+      recognition.interimResults = false
       recognition.lang = 'id-ID'
 
       let fullTranscript = ''
@@ -245,18 +245,20 @@ export function startVoiceListening({
       }
 
       recognition.onresult = (event) => {
-        let interimTranscript = ''
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            fullTranscript += event.results[i][0].transcript + ' '
-          } else {
-            interimTranscript += event.results[i][0].transcript
-          }
+        let transcript = ''
+        if (event.results && event.results[0] && event.results[0][0]) {
+          transcript = event.results[0][0].transcript.trim()
         }
-
-        const currentText = (fullTranscript + interimTranscript).trim()
-        if (currentText) {
-          onTranscriptChange?.(currentText)
+        if (transcript) {
+          fullTranscript = transcript
+          onTranscriptChange?.(transcript)
+          if (!isCompleted) {
+            isCompleted = true
+            try {
+              recognition.stop()
+            } catch {}
+            onComplete?.(transcript)
+          }
         }
         resetSilenceTimer()
       }
