@@ -951,9 +951,7 @@ export default function App() {
             : []
 
         if (idsToDelete.length > 0) {
-          for (const id of idsToDelete) {
-            await handleDeleteTask(id)
-          }
+          await Promise.all(idsToDelete.map((id) => handleDeleteTask(id)))
           const reply = replyMsg || `Siap bro, ${idsToDelete.length} tugas berhasil dihapus sekaligus.`
           sfx.playSuccess()
           setInterimVoiceText(`✓ ${reply}`)
