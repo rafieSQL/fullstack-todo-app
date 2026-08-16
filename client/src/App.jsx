@@ -452,49 +452,71 @@ export default function App() {
       setNewTaskTitle('')
 
       try {
-        // Send input to AI parser for multi-task decomposition & deadline extraction (with 7s timeout & active task memory)
-        const parsed = await parseCommandWithAI(rawInput, new Date().toISOString(), null, getActiveContextTasks())
+        let taskList = []
+        let replyMsg = ''
 
-        // Ambiguity check
-        if (parsed.is_ambiguous) {
-          showToast('⚠️ Partner kurang yakin dengan waktunya. Silakan sesuaikan manual.', 'info')
+        // 1. Send to Smart NLP Parser (/api/parse-task)
+        try {
+          const parseRes = await fetch('/api/parse-task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: rawInput,
+              defaultCategory: newCategory,
+              defaultPriority: newPriority,
+              clientTime: new Date().toISOString()
+            })
+          })
+
+          if (parseRes.ok) {
+            const parseData = await parseRes.json()
+            if (Array.isArray(parseData.tasks) && parseData.tasks.length > 0) {
+              taskList = parseData.tasks
+            }
+          }
+        } catch (nlpErr) {
+          console.warn('/api/parse-task error, falling back to aiService:', nlpErr.message)
+        }
+
+        // 2. Fallback to parseCommandWithAI if parse-task returned nothing
+        if (taskList.length === 0) {
+          const parsed = await parseCommandWithAI(rawInput, new Date().toISOString(), null, getActiveContextTasks())
+          if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+            taskList = parsed.tasks
+            replyMsg = parsed.confirmation_reply || parsed.reply_summary
+          } else if (parsed.title) {
+            taskList = [
+              {
+                title: parsed.title,
+                priority: parsed.priority || newPriority,
+                category: parsed.workspace || parsed.category || newCategory,
+                due_date: parsed.scheduled_at || parsed.start_time
+              }
+            ]
+          }
         }
 
         // Remove preview task before actual creation
         setTasks((prev) => prev.filter((t) => t.id !== tempPreviewId))
 
-        if (parsed.action === 'CREATE_TASKS' || (Array.isArray(parsed.tasks) && parsed.tasks.length > 0)) {
-          const taskList = parsed.tasks || []
-
+        if (taskList.length > 0) {
           for (const t of taskList) {
             await handleCreateTask({
               title: t.title,
               priority: (t.priority || newPriority || 'medium').toLowerCase(),
               category: t.workspace || t.category || newCategory || 'General',
-              due_date: t.scheduled_at || t.due_date,
+              due_date: t.dueDate || t.due_date || t.scheduled_at,
               duration_minutes: t.duration_minutes || 30
             })
           }
 
           sfx.playSuccess()
-          showToast(parsed.confirmation_reply || parsed.reply_summary || `Berhasil menambahkan ${taskList.length} tugas terjadwal ke kalender.`)
-        } else if (parsed.action === 'SCHEDULE_EVENT') {
-          const startTime = parsed.scheduled_at || parsed.start_time || new Date().toISOString()
-          const endTime = parsed.end_time || new Date(new Date(startTime).getTime() + 3600000).toISOString()
-
-          await api.createCalendarEvent({
-            title: parsed.title || rawInput,
-            startTime,
-            endTime,
-            category: parsed.workspace || parsed.category || newCategory,
-            priority: (parsed.priority || newPriority).toLowerCase(),
-            autoMorph: true,
-            isCompleted: false,
-            userId: session?.user?.id
-          })
-          sfx.playSuccess()
-          showToast(parsed.confirmation_reply || parsed.reply_summary || `Jadwal "${parsed.title}" berhasil diatur.`)
-          setMainTab('calendar')
+          showToast(
+            replyMsg ||
+              (taskList.length === 1
+                ? `Tugas "${taskList[0].title}" berhasil ditambahkan.`
+                : `Berhasil menambahkan ${taskList.length} tugas terjadwal.`)
+          )
         } else {
           // Standard single task fallback with validated title
           const validation = validateTaskTitle(rawInput)
@@ -503,12 +525,10 @@ export default function App() {
             showToast(validation.error, 'error')
             return
           }
-          const defaultDue = parsed.start_time || new Date(new Date().setHours(23, 59, 0, 0)).toISOString()
           await handleCreateTask({
             title: validation.sanitized,
             priority: newPriority,
             category: newCategory,
-            due_date: defaultDue,
             duration_minutes: 30
           })
           sfx.playSuccess()
@@ -527,7 +547,7 @@ export default function App() {
         setIsSubmitting(false)
       }
     },
-    [newTaskTitle, newPriority, newCategory, isSubmitting, session, handleCreateTask, showToast]
+    [newTaskTitle, newPriority, newCategory, isSubmitting, session, handleCreateTask, getActiveContextTasks, showToast]
   )
 
   // Toggle Task Completion with Spam-Click Protection & Busy Lock
@@ -1525,15 +1545,6 @@ export default function App() {
               autoFocus
               aria-label="New task title"
             />
-            {/* Tombol AI / Mic di bar input task */}
-            <button
-              type="button"
-              onClick={handleTogglePartner}
-              title={isPartnerRecording ? 'Klik untuk selesai merekam' : 'Voice / AI Action'}
-              className={`btn-ai-voice ${isPartnerRecording ? 'is-recording' : ''}`}
-            >
-              {isPartnerRecording ? '🔴 Stop' : '✨ AI'}
-            </button>
             <button
               type="submit"
               className="btn-primary"
