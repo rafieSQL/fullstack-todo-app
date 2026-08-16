@@ -185,8 +185,35 @@ export function startVoiceListening({
         }
       }
 
+      let retryCount = 0
+
       recognition.onerror = (event) => {
         console.warn('Speech recognition error:', event.error)
+
+        if (event.error === 'network' && retryCount < 1) {
+          retryCount++
+          onStatusChange?.('🔄 Mencoba menghubungkan kembali suara...')
+          try {
+            recognition.stop()
+            setTimeout(() => {
+              try {
+                if (recognition) recognition.start()
+              } catch {
+                if (silenceTimer) clearTimeout(silenceTimer)
+                if (maxDurationTimer) clearTimeout(maxDurationTimer)
+                const netErr = new Error(
+                  'Gangguan koneksi suara ke browser. Silakan ketik perintah secara manual.'
+                )
+                netErr.name = 'NetworkError'
+                onError?.(netErr)
+              }
+            }, 300)
+            return
+          } catch {
+            // fallback below
+          }
+        }
+
         if (silenceTimer) clearTimeout(silenceTimer)
         if (maxDurationTimer) clearTimeout(maxDurationTimer)
 
