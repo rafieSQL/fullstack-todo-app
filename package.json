@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@upstash/ratelimit": "^2.0.8",
-    "@upstash/redis": "^1.38.2"
+    "@upstash/redis": "^1.38.2",
+    "groq-sdk": "^1.5.0"
   }
 }
