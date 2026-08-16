@@ -120,23 +120,80 @@ export function getDurationMinutes(start, end) {
 
 /**
  * Compute vertical CSS top and height percentages for an event within a day column
- * Standard 24-hour viewport
+ * Standard 24-hour viewport, protected from clipping or bottom-right overflow.
  */
 export function getEventPosition(startTime, endTime, startHour = 0, totalHours = 24) {
   const s = new Date(startTime)
   const e = new Date(endTime)
 
   const startMinutes = (s.getHours() - startHour) * 60 + s.getMinutes()
-  const endMinutes = (e.getHours() - startHour) * 60 + e.getMinutes()
+  let endMinutes = (e.getHours() - startHour) * 60 + e.getMinutes()
+
+  // Handle midnight or multi-day boundary
+  if (endMinutes <= startMinutes) {
+    const diff = (e.getTime() - s.getTime()) / (1000 * 60)
+    endMinutes = startMinutes + (diff > 0 ? diff : 60)
+  }
 
   const totalMinutes = totalHours * 60
-  const topPercent = Math.max(0, (startMinutes / totalMinutes) * 100)
-  const heightPercent = Math.max(2, ((endMinutes - startMinutes) / totalMinutes) * 100)
+  const topPercent = Math.min(97.5, Math.max(0, (startMinutes / totalMinutes) * 100))
+  // Clamp height to prevent overflowing bottom of grid
+  const rawHeightPercent = Math.max(2.2, ((endMinutes - startMinutes) / totalMinutes) * 100)
+  const heightPercent = Math.min(rawHeightPercent, 100 - topPercent)
 
   return {
     top: `${topPercent}%`,
     height: `${heightPercent}%`
   }
+}
+
+/**
+ * Expand recurring routines/habits across the active date range
+ */
+export function expandRecurringEvents(events = [], daysInRange = []) {
+  const result = []
+
+  events.forEach((ev) => {
+    result.push(ev)
+
+    // Only routines with repeat active get virtual recurrence expansion
+    if (ev.event_type === 'routine' && ev.recurrence && ev.recurrence !== 'none') {
+      const origStart = new Date(ev.start_time)
+      const origEnd = new Date(ev.end_time)
+      const durationMs = origEnd.getTime() - origStart.getTime()
+
+      daysInRange.forEach((day) => {
+        if (isSameDay(day, origStart)) return // Already present as original
+
+        let matches = false
+        if (ev.recurrence === 'daily') {
+          matches = true
+        } else if (ev.recurrence === 'weekdays') {
+          const dow = day.getDay()
+          matches = dow >= 1 && dow <= 5 // Mon - Fri
+        } else if (ev.recurrence === 'weekly') {
+          matches = day.getDay() === origStart.getDay()
+        }
+
+        if (matches) {
+          const recStart = new Date(day)
+          recStart.setHours(origStart.getHours(), origStart.getMinutes(), origStart.getSeconds(), 0)
+          const recEnd = new Date(recStart.getTime() + durationMs)
+
+          result.push({
+            ...ev,
+            id: `${ev.id}-rec-${day.getTime()}`,
+            _isRecurringInstance: true,
+            _parentEventId: ev.id,
+            start_time: recStart.toISOString(),
+            end_time: recEnd.toISOString()
+          })
+        }
+      })
+    }
+  })
+
+  return result
 }
 
 /**

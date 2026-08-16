@@ -592,6 +592,56 @@
   box-shadow: inset 0 0 0 1px #10b981;
 }
 
+.chronos-event-card.is-routine {
+  border: 1px dashed rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  border-left: 3px solid #71717a !important;
+}
+
+.chronos-event-card.is-routine.cat-Engineering {
+  border-left: 3px solid #3b82f6 !important;
+}
+
+.chronos-event-card.is-routine.cat-Design {
+  border-left: 3px solid #a855f7 !important;
+}
+
+.chronos-event-card.is-routine.cat-Personal {
+  border-left: 3px solid #10b981 !important;
+}
+
+.event-routine-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #d4d4d8;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.chronos-btn-new-habit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d4d4d8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.chronos-btn-new-habit:hover {
+  background-color: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
 .chronos-event-card.is-overdue {
   background: rgba(239, 68, 68, 0.12) !important;
   border: 1px solid rgba(239, 68, 68, 0.35) !important;

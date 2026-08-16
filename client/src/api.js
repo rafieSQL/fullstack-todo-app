@@ -16,7 +16,7 @@ export class ApiError extends Error {
 // Columns to fetch for minimal payload transfer
 const TASK_FIELDS = 'id, title, priority, category, completed, "order", created_at, updated_at'
 const ACTIVITY_FIELDS = 'id, type, message, details, created_at'
-const CALENDAR_FIELDS = 'id, task_id, title, start_time, end_time, category, priority, auto_morph, is_completed, created_at, updated_at'
+const CALENDAR_FIELDS = 'id, task_id, title, start_time, end_time, category, priority, auto_morph, is_completed, event_type, recurrence, created_at, updated_at'
 
 // In-memory fallback dataset for sandbox/preview mode
 let mockTasks = [
@@ -521,6 +521,8 @@ export async function createCalendarEvent({
   category = 'General',
   priority = 'medium',
   autoMorph = true,
+  eventType = 'task',
+  recurrence = 'none',
   userId = null
 }) {
   const cleanTitle = sanitizeText(title, 250)
@@ -543,6 +545,9 @@ export async function createCalendarEvent({
     }
   }
 
+  const safeEventType = eventType === 'routine' ? 'routine' : 'task'
+  const safeRecurrence = ['none', 'daily', 'weekdays', 'weekly'].includes(recurrence) ? recurrence : 'none'
+
   // Fallback to local memory if Supabase not configured or no active authenticated user
   if (!isSupabaseConfigured || !activeUserId) {
     const newEvent = {
@@ -554,6 +559,8 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
+      event_type: safeEventType,
+      recurrence: safeRecurrence,
       is_completed: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -571,6 +578,8 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
+      event_type: safeEventType,
+      recurrence: safeRecurrence,
       is_completed: false
     }
     if (activeUserId) payload.user_id = activeUserId
@@ -605,6 +614,8 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
+      event_type: safeEventType,
+      recurrence: safeRecurrence,
       is_completed: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()

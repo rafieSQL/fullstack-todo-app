@@ -14,9 +14,15 @@ CREATE TABLE IF NOT EXISTS public.calendar_events (
   priority VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
   auto_morph BOOLEAN NOT NULL DEFAULT true,
   is_completed BOOLEAN NOT NULL DEFAULT false,
+  event_type VARCHAR(20) NOT NULL DEFAULT 'task' CHECK (event_type IN ('task', 'routine')),
+  recurrence VARCHAR(20) NOT NULL DEFAULT 'none' CHECK (recurrence IN ('none', 'daily', 'weekdays', 'weekly')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration safety for existing tables
+ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS event_type VARCHAR(20) NOT NULL DEFAULT 'task';
+ALTER TABLE public.calendar_events ADD COLUMN IF NOT EXISTS recurrence VARCHAR(20) NOT NULL DEFAULT 'none';
 
 -- Revoke default public permissions & grant to authenticated users
 REVOKE ALL ON TABLE public.calendar_events FROM anon, public;
