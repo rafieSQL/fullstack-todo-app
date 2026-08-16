@@ -80,7 +80,7 @@ export default function ChronosCalendar({
   const displayedDays = viewMode === 'day' ? [currentDate] : weekDays
   const activeViewDays = viewMode === 'month' ? monthDays : displayedDays
 
-  // Expand recurring routines/habits across active range
+  // Expand recurring items across active date range
   const visibleEvents = useMemo(() => {
     return expandRecurringEvents(events, activeViewDays)
   }, [events, activeViewDays])
@@ -160,11 +160,11 @@ export default function ChronosCalendar({
     return list
   }, [tasks, events, sidebarSearch])
 
-  // Overdue Events Check (Strictly EXEMPT routine/habit events)
+  // Overdue Events Check (Strictly for tasks, standalone events are exempt)
   const activeOverdueEvents = useMemo(() => {
     return events.filter(
       (ev) =>
-        ev.event_type !== 'routine' &&
+        ev.event_type !== 'event' &&
         !ev.is_completed &&
         new Date(now).getTime() > new Date(ev.end_time).getTime() &&
         !dismissedOverdueIds.has(ev.id)
@@ -202,7 +202,7 @@ export default function ChronosCalendar({
     setCurrentDate(new Date())
   }
 
-  // Handle Slot Click (Quick Create Event)
+  // Handle Slot Click (Quick Create Event or Task)
   const handleSlotClick = (date, hour = 9) => {
     const start = new Date(date)
     start.setHours(hour, 0, 0, 0)
@@ -226,25 +226,25 @@ export default function ChronosCalendar({
     })
   }
 
-  // Quick "+ New Habit / Routine" Action
-  const handleOpenNewHabitModal = () => {
+  // Quick "+ Event" Action (for Milestones / Meetings / Agendas)
+  const handleOpenNewEventModal = () => {
     const start = new Date(currentDate)
-    start.setHours(8, 0, 0, 0)
+    start.setHours(10, 0, 0, 0)
     const end = new Date(start)
-    end.setHours(9, 0, 0, 0)
+    end.setHours(11, 0, 0, 0)
 
     setModalState({
       isOpen: true,
       mode: 'create',
       eventData: {
-        title: 'Morning Focus Routine',
+        title: 'Project Milestone / Meeting',
         start_time: start.toISOString(),
         end_time: end.toISOString(),
-        category: 'Personal',
-        priority: 'low',
+        category: 'Engineering',
+        priority: 'high',
         auto_morph: false,
-        event_type: 'routine',
-        recurrence: 'daily',
+        event_type: 'event',
+        recurrence: 'none',
         task_id: null
       }
     })
@@ -353,7 +353,7 @@ export default function ChronosCalendar({
       return
     }
 
-    // Schedule task from backlog (defaults to event_type: 'task')
+    // Schedule task from backlog
     const end = new Date(start)
     end.setHours(hour + 1, 0, 0, 0)
 
@@ -613,7 +613,7 @@ export default function ChronosCalendar({
         const updatedList = [...events, created]
         const { morphedEvents, changedEvents } = morphSchedule(updatedList, autoMorphEnabled)
         setEvents(morphedEvents)
-        showToast(`Created ${formData.event_type === 'routine' ? 'routine' : 'event'} "${formData.title}"`)
+        showToast(`Created ${formData.event_type === 'event' ? 'event' : 'task'} "${formData.title}"`)
 
         if (changedEvents.length > 0) {
           for (const ev of changedEvents) {
@@ -696,15 +696,14 @@ export default function ChronosCalendar({
         </div>
 
         <div className="chronos-nav-group">
-          {/* Quick "+ Habit" Trigger */}
+          {/* Quick "+ Event" Action (Milestone/Meeting) */}
           <button
             type="button"
-            className="chronos-btn-new-habit"
-            onClick={handleOpenNewHabitModal}
-            title="Create a repeating Routine or Lifestyle Habit"
+            className="chronos-btn-new-event"
+            onClick={handleOpenNewEventModal}
+            title="Create a Standalone Event or Milestone"
           >
-            <span>🔄</span>
-            <span>+ Habit</span>
+            <span>+ Event</span>
           </button>
 
           {/* Velocity Auto-Morph Shield Toggle */}
@@ -768,7 +767,7 @@ export default function ChronosCalendar({
           <div className="chronos-sidebar-header">
             {isSidebarOpen && (
               <span>
-                {isSidebarDragOver ? 'Drop to Unschedule ↩' : `Backlog (${unassignedTasks.length})`}
+                {isSidebarDragOver ? 'Drop to Unschedule ↩' : `Task Backlog (${unassignedTasks.length})`}
               </span>
             )}
             <button
@@ -843,33 +842,41 @@ export default function ChronosCalendar({
                   const isToday = isSameDay(day, new Date())
                   const isOtherMonth = day.getMonth() !== currentDate.getMonth()
                   const dayEvents = visibleEvents.filter((e) => isSameDay(e.start_time, day))
+                  
+                  // Prioritize standalone events first in month cells
+                  const sortedDayEvents = [...dayEvents].sort((a, b) => {
+                    if (a.event_type === 'event' && b.event_type !== 'event') return -1
+                    if (a.event_type !== 'event' && b.event_type === 'event') return 1
+                    return new Date(a.start_time) - new Date(b.start_time)
+                  })
 
                   return (
                     <div
                       key={day.toISOString()}
                       className={`chronos-month-cell ${isOtherMonth ? 'is-other-month' : ''} ${isToday ? 'is-today' : ''}`}
                       onClick={() => handleSlotClick(day, 9)}
+                      title={`Click date to schedule item on ${day.toLocaleDateString()}`}
                     >
                       <span className="month-cell-number">{day.getDate()}</span>
-                      {dayEvents.slice(0, 3).map((ev) => {
-                        const isRoutine = ev.event_type === 'routine'
-                        const isOverdue = !isRoutine && !ev.is_completed && new Date(now).getTime() > new Date(ev.end_time).getTime()
+                      {sortedDayEvents.slice(0, 3).map((ev) => {
+                        const isEvent = ev.event_type === 'event'
+                        const isOverdue = !isEvent && !ev.is_completed && new Date(now).getTime() > new Date(ev.end_time).getTime()
 
                         return (
                           <div
                             key={ev.id}
-                            className={`month-event-pill ${isOverdue ? 'is-overdue' : ''} ${isRoutine ? 'is-routine' : ''}`}
+                            className={`month-event-pill ${isEvent ? 'is-event' : 'is-task'} ${isOverdue ? 'is-overdue' : ''}`}
                             onClick={(e) => handleEventClick(e, ev)}
                             title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
                           >
-                            {isRoutine ? '🔄 ' : isOverdue ? '⚠️ ' : ''}
+                            {isEvent ? '📅 ' : isOverdue ? '⚠️ ' : ''}
                             {ev.title}
                           </div>
                         )
                       })}
-                      {dayEvents.length > 3 && (
+                      {sortedDayEvents.length > 3 && (
                         <span style={{ fontSize: '9px', color: '#71717a', fontWeight: 'bold' }}>
-                          +{dayEvents.length - 3} more
+                          +{sortedDayEvents.length - 3} more
                         </span>
                       )}
                     </div>
@@ -948,18 +955,17 @@ export default function ChronosCalendar({
                         )
                       })}
 
-                      {/* Scheduled Event Cards */}
+                      {/* Scheduled Event & Task Cards */}
                       {dayEvents.map((event) => {
                         const pos = getEventPosition(event.start_time, event.end_time)
                         const categoryClass = `cat-${event.category || 'General'}`
-                        const isRoutine = event.event_type === 'routine'
-                        // Routines/Habits strictly EXEMPT from Overdue styling
-                        const isOverdue = !isRoutine && !event.is_completed && new Date(now).getTime() > new Date(event.end_time).getTime()
+                        const isStandaloneEvent = event.event_type === 'event'
+                        const isOverdue = !isStandaloneEvent && !event.is_completed && new Date(now).getTime() > new Date(event.end_time).getTime()
 
                         return (
                           <div
                             key={event.id}
-                            className={`chronos-event-card ${categoryClass} ${isRoutine ? 'is-routine' : ''} ${event._morphed ? 'morphed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
+                            className={`chronos-event-card ${categoryClass} ${isStandaloneEvent ? 'type-event' : ''} ${event._morphed ? 'morphed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
                             style={{
                               top: pos.top,
                               height: pos.height
@@ -967,22 +973,20 @@ export default function ChronosCalendar({
                             draggable={!event._isRecurringInstance}
                             onDragStart={(e) => handleEventDragStart(e, event)}
                             onClick={(e) => handleEventClick(e, event)}
-                            title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — ${isRoutine ? 'Recurring Routine' : 'Actionable Task'}`}
+                            title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — ${isStandaloneEvent ? 'Event / Milestone' : 'Scheduled Task'}`}
                           >
                             <div className="event-card-header">
                               <span className="event-card-time">
                                 {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
                               </span>
                               <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-                                {isRoutine && (
-                                  <span className="event-routine-badge">
-                                    🔄 {event.recurrence === 'daily' ? 'DAILY' : event.recurrence === 'weekdays' ? 'WEEKDAYS' : event.recurrence === 'weekly' ? 'WEEKLY' : 'HABIT'}
-                                  </span>
+                                {isStandaloneEvent && (
+                                  <span className="event-type-badge">📅 EVENT</span>
                                 )}
                                 {isOverdue && (
                                   <span className="event-overdue-badge">⚠️ OVERDUE</span>
                                 )}
-                                {!isRoutine && event.auto_morph && (
+                                {!isStandaloneEvent && event.auto_morph && (
                                   <span className="event-morph-badge" title="Auto-Morph Active">
                                     ⚡
                                   </span>
@@ -995,7 +999,7 @@ export default function ChronosCalendar({
                             <div className="event-card-footer">
                               <span>{event.category || 'General'}</span>
                               <span className="event-card-badge">
-                                {isRoutine ? 'ROUTINE' : event.priority || 'MED'}
+                                {isStandaloneEvent ? 'AGENDA' : event.priority || 'MED'}
                               </span>
                             </div>
 
@@ -1019,7 +1023,7 @@ export default function ChronosCalendar({
         </div>
       </div>
 
-      {/* Actionable Overdue Alert Banner (Strictly for tasks, never routines) */}
+      {/* Actionable Overdue Alert Banner (Strictly for tasks) */}
       {topOverdueEvent && (
         <aside className="chronos-overdue-banner" role="alert">
           <div className="overdue-banner-left">
@@ -1069,7 +1073,7 @@ export default function ChronosCalendar({
         >
           <div className="chronos-modal" onClick={(e) => e.stopPropagation()}>
             <div className="chronos-modal-header">
-              <span>{modalState.mode === 'create' ? 'Schedule Event or Routine' : 'Edit Event'}</span>
+              <span>{modalState.mode === 'create' ? 'Schedule Item' : 'Edit Schedule Item'}</span>
               <button
                 type="button"
                 className="toast-close-btn"
@@ -1087,40 +1091,35 @@ export default function ChronosCalendar({
               }}
               className="chronos-modal-form"
             >
-              {/* Event Type Switcher (Task vs Routine/Habit) */}
+              {/* Type Switcher: Task vs Standalone Event */}
               <div className="chronos-form-row">
-                <label>Type</label>
+                <label>Item Type</label>
                 <div className="chronos-view-switch" style={{ width: '100%', display: 'flex' }}>
                   <button
                     type="button"
                     style={{ flex: 1 }}
-                    className={`chronos-view-btn ${modalState.eventData?.event_type !== 'routine' ? 'active' : ''}`}
+                    className={`chronos-view-btn ${modalState.eventData?.event_type !== 'event' ? 'active' : ''}`}
                     onClick={() =>
                       setModalState((prev) => ({
                         ...prev,
-                        eventData: { ...prev.eventData, event_type: 'task', recurrence: 'none' }
+                        eventData: { ...prev.eventData, event_type: 'task' }
                       }))
                     }
                   >
-                    📋 Actionable Task
+                    📋 Task
                   </button>
                   <button
                     type="button"
                     style={{ flex: 1 }}
-                    className={`chronos-view-btn ${modalState.eventData?.event_type === 'routine' ? 'active' : ''}`}
+                    className={`chronos-view-btn ${modalState.eventData?.event_type === 'event' ? 'active' : ''}`}
                     onClick={() =>
                       setModalState((prev) => ({
                         ...prev,
-                        eventData: {
-                          ...prev.eventData,
-                          event_type: 'routine',
-                          recurrence: prev.eventData?.recurrence && prev.eventData?.recurrence !== 'none' ? prev.eventData.recurrence : 'daily',
-                          auto_morph: false
-                        }
+                        eventData: { ...prev.eventData, event_type: 'event', auto_morph: false }
                       }))
                     }
                   >
-                    🔄 Routine / Habit
+                    📅 Standalone Event
                   </button>
                 </div>
               </div>
@@ -1138,35 +1137,30 @@ export default function ChronosCalendar({
                       eventData: { ...prev.eventData, title: e.target.value }
                     }))
                   }
-                  placeholder={modalState.eventData?.event_type === 'routine' ? 'e.g., Weekly Sunday Run, Daily Standup...' : 'Event title or milestone...'}
+                  placeholder={modalState.eventData?.event_type === 'event' ? 'e.g. Sprint Planning, Team Sync...' : 'Task title or deliverable...'}
                 />
               </div>
 
-              {/* Recurrence Option for Routines */}
-              {modalState.eventData?.event_type === 'routine' && (
-                <div className="chronos-form-row">
-                  <label>Repeat / Recurrence</label>
-                  <select
-                    className="chronos-input"
-                    value={modalState.eventData?.recurrence || 'daily'}
-                    onChange={(e) =>
-                      setModalState((prev) => ({
-                        ...prev,
-                        eventData: { ...prev.eventData, recurrence: e.target.value }
-                      }))
-                    }
-                  >
-                    {RECURRENCE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <span style={{ fontSize: '10px', color: '#71717a', marginTop: '2px' }}>
-                    * Routines are exempt from overdue warnings and deadline alerts.
-                  </span>
-                </div>
-              )}
+              {/* Optional Recurrence */}
+              <div className="chronos-form-row">
+                <label>Recurrence / Repeat</label>
+                <select
+                  className="chronos-input"
+                  value={modalState.eventData?.recurrence || 'none'}
+                  onChange={(e) =>
+                    setModalState((prev) => ({
+                      ...prev,
+                      eventData: { ...prev.eventData, recurrence: e.target.value }
+                    }))
+                  }
+                >
+                  {RECURRENCE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div className="chronos-time-inputs">
                 <div className="chronos-form-row">
@@ -1268,7 +1262,7 @@ export default function ChronosCalendar({
                 </div>
               </div>
 
-              {modalState.eventData?.event_type !== 'routine' && (
+              {modalState.eventData?.event_type !== 'event' && (
                 <div className="chronos-form-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                   <input
                     type="checkbox"
@@ -1295,18 +1289,20 @@ export default function ChronosCalendar({
                         type="button"
                         className="btn-chronos-delete"
                         onClick={() => handleDeleteEvent(modalState.eventData.id)}
-                        title="Delete this event record"
+                        title="Delete this item record"
                       >
                         Delete
                       </button>
-                      <button
-                        type="button"
-                        className="btn-chronos-focus"
-                        onClick={() => handleUnscheduleEvent(modalState.eventData)}
-                        title="Unschedule and return to Backlog"
-                      >
-                        ↩ Unschedule
-                      </button>
+                      {modalState.eventData?.task_id && (
+                        <button
+                          type="button"
+                          className="btn-chronos-focus"
+                          onClick={() => handleUnscheduleEvent(modalState.eventData)}
+                          title="Unschedule and return to Backlog"
+                        >
+                          ↩ Unschedule
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

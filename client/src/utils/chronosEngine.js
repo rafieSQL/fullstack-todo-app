@@ -156,8 +156,8 @@ export function expandRecurringEvents(events = [], daysInRange = []) {
   events.forEach((ev) => {
     result.push(ev)
 
-    // Only routines with repeat active get virtual recurrence expansion
-    if (ev.event_type === 'routine' && ev.recurrence && ev.recurrence !== 'none') {
+    // Items with repeat active get virtual recurrence expansion
+    if (ev.recurrence && ev.recurrence !== 'none') {
       const origStart = new Date(ev.start_time)
       const origEnd = new Date(ev.end_time)
       const durationMs = origEnd.getTime() - origStart.getTime()

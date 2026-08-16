@@ -545,7 +545,7 @@ export async function createCalendarEvent({
     }
   }
 
-  const safeEventType = eventType === 'routine' ? 'routine' : 'task'
+  const safeEventType = eventType === 'event' ? 'event' : 'task'
   const safeRecurrence = ['none', 'daily', 'weekdays', 'weekly'].includes(recurrence) ? recurrence : 'none'
 
   // Fallback to local memory if Supabase not configured or no active authenticated user
