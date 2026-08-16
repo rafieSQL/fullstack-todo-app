@@ -182,11 +182,18 @@ export default function ChronosCalendar({
   // Handle Drag from Sidebar & Drop on Calendar Slot
   const handleTaskDragStart = (e, task) => {
     setDraggedTask(task)
-    e.dataTransfer.setData('text/plain', task.id)
+    try {
+      e.dataTransfer.setData('application/json', JSON.stringify(task))
+      e.dataTransfer.setData('text/plain', task.id || '')
+      e.dataTransfer.effectAllowed = 'copyMove'
+    } catch {
+      // fallback to state
+    }
   }
 
   const handleSlotDragOver = (e, slotKey) => {
     e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
     setDragOverSlot(slotKey)
   }
 
@@ -196,50 +203,90 @@ export default function ChronosCalendar({
 
   const handleSlotDrop = async (e, date, hour) => {
     e.preventDefault()
+    e.stopPropagation()
     setDragOverSlot(null)
-    if (!draggedTask) return
+
+    // Resolve task payload from dataTransfer or memory
+    let taskToSchedule = draggedTask
+    if (!taskToSchedule) {
+      try {
+        const jsonStr = e.dataTransfer.getData('application/json')
+        if (jsonStr) taskToSchedule = JSON.parse(jsonStr)
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!taskToSchedule) return
+    setDraggedTask(null)
 
     const start = new Date(date)
     start.setHours(hour, 0, 0, 0)
     const end = new Date(start)
     end.setHours(hour + 1, 0, 0, 0)
 
+    // Optimistic temporary event
+    const tempId = `temp-${taskToSchedule.id}-${start.getTime()}`
+    const optimisticEvent = {
+      id: tempId,
+      task_id: taskToSchedule.id,
+      title: taskToSchedule.title,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      category: taskToSchedule.category || 'General',
+      priority: taskToSchedule.priority || 'medium',
+      auto_morph: true,
+      is_completed: false,
+      created_at: start.toISOString()
+    }
+
+    // Immediately render on grid with Auto-Morph
+    const preList = [...events, optimisticEvent]
+    const { morphedEvents: optMorphed } = morphSchedule(preList, autoMorphEnabled)
+    setEvents(optMorphed)
+
+    showToast(`Scheduled "${taskToSchedule.title}" at ${formatHour(hour)}`)
+
     try {
       const created = await createCalendarEvent({
-        title: draggedTask.title,
+        title: taskToSchedule.title,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        taskId: draggedTask.id,
-        category: draggedTask.category || 'General',
-        priority: draggedTask.priority || 'medium',
+        taskId: taskToSchedule.id,
+        category: taskToSchedule.category || 'General',
+        priority: taskToSchedule.priority || 'medium',
         autoMorph: true,
         userId: user?.id
       })
 
-      // Run Velocity Auto-Morph Engine
-      const updatedList = [...events, created]
+      // Replace optimistic temp event with saved record
+      const updatedList = events.map((ev) => (ev.id === tempId ? created : ev))
+      if (!updatedList.some((ev) => ev.id === created.id)) {
+        updatedList.push(created)
+      }
       const { morphedEvents, changedEvents } = morphSchedule(updatedList, autoMorphEnabled)
-
       setEvents(morphedEvents)
-      showToast(`Scheduled "${draggedTask.title}" at ${formatHour(hour)}`)
+
       logActivity({
         type: 'create',
-        message: `Scheduled task on calendar: "${draggedTask.title}"`,
+        message: `Scheduled task on calendar: "${taskToSchedule.title}"`,
         userId: user?.id
       })
 
-      // Persist any shifted events
+      // Persist any auto-morphed downstream shifts
       if (changedEvents.length > 0) {
         for (const ev of changedEvents) {
-          await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+          if (!ev.id.startsWith('temp-')) {
+            await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+          }
         }
         showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} events to prevent overlap.`)
       }
     } catch (err) {
       console.error('Failed to drop task onto calendar:', err)
-      showToast('Failed to schedule task.', 'error')
-    } finally {
-      setDraggedTask(null)
+      // Roll back optimistic insertion on failure
+      setEvents((prev) => prev.filter((ev) => ev.id !== tempId))
+      showToast(err.message || 'Failed to schedule task.', 'error')
     }
   }
 
