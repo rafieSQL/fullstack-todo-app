@@ -211,9 +211,34 @@ export default function ChronosCalendar({
     return () => clearInterval(timer)
   }, [events, isItemCompleted])
 
+  // Unified Calendar Items: Merge explicit calendar events with all tasks that have a due_date
+  const displayEvents = useMemo(() => {
+    const eventTaskIdSet = new Set(events.map((e) => e.task_id).filter(Boolean))
+    const taskEvents = (tasks || [])
+      .filter((t) => t.due_date && !eventTaskIdSet.has(t.id))
+      .map((t) => {
+        const start = new Date(t.due_date)
+        const durationMs = (t.duration_minutes || 30) * 60000
+        const end = new Date(start.getTime() + durationMs)
+        return {
+          id: `task-cal-${t.id}`,
+          task_id: t.id,
+          title: t.title,
+          start_time: start.toISOString(),
+          end_time: end.toISOString(),
+          category: t.category || 'General',
+          priority: (t.priority || 'medium').toLowerCase(),
+          auto_morph: true,
+          is_completed: Boolean(t.completed),
+          created_at: t.created_at || new Date().toISOString()
+        }
+      })
+    return [...events, ...taskEvents]
+  }, [events, tasks])
+
   // Unassigned Backlog Tasks (tasks in registry that are NOT completed and NOT scheduled)
   const unassignedTasks = useMemo(() => {
-    const scheduledTaskIds = new Set(events.map((e) => e.task_id).filter(Boolean))
+    const scheduledTaskIds = new Set(displayEvents.map((e) => e.task_id).filter(Boolean))
     let list = tasks.filter((t) => !t.completed && !scheduledTaskIds.has(t.id))
     if (sidebarSearch.trim()) {
       const query = sidebarSearch.toLowerCase()
@@ -224,7 +249,7 @@ export default function ChronosCalendar({
       )
     }
     return list
-  }, [tasks, events, sidebarSearch])
+  }, [tasks, displayEvents, sidebarSearch])
 
   // In-Sidebar Quick Task Submission Handler
   const handleQuickTaskSubmit = async (e) => {
@@ -1087,7 +1112,7 @@ export default function ChronosCalendar({
               {monthDays.map((day) => {
                 const isToday = isSameDay(day, new Date())
                 const isOtherMonth = day.getMonth() !== currentDate.getMonth()
-                const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
+                const dayEvents = displayEvents.filter((e) => isSameDay(e.start_time, day))
 
                 return (
                   <div
@@ -1165,7 +1190,7 @@ export default function ChronosCalendar({
               {/* Day Columns */}
               {displayedDays.map((day) => {
                 const isToday = isSameDay(day, new Date())
-                const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
+                const dayEvents = displayEvents.filter((e) => isSameDay(e.start_time, day))
 
                 return (
                   <div

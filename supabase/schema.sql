@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS public.tasks (
   title TEXT NOT NULL CHECK (length(trim(title)) > 0 AND length(title) <= 250),
   priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high')),
   category TEXT NOT NULL DEFAULT 'General' CHECK (category IN ('General', 'Engineering', 'Design', 'Personal')),
+  due_date TIMESTAMPTZ,
   completed BOOLEAN NOT NULL DEFAULT false,
   "order" INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
 -- 4. Indexes for Performance and Security
 CREATE INDEX IF NOT EXISTS idx_tasks_user_order ON public.tasks (user_id, "order" ASC);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_created ON public.tasks (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_user_due ON public.tasks (user_id, due_date ASC);
 CREATE INDEX IF NOT EXISTS idx_activity_user_created ON public.activity_logs (user_id, created_at DESC);
 
 -- 5. Revoke Public/Anonymous Access & Grant to Authenticated Users

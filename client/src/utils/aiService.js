@@ -9,6 +9,27 @@ function capitalizeFirstLetter(str) {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }
 
+function isValidISO(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return false
+  const d = new Date(dateStr)
+  return !isNaN(d.getTime())
+}
+
+/**
+ * Infer a sensible default deadline (today at 23:59:00 or tomorrow morning) so due_date is NEVER null
+ */
+function getDefaultDueDate(refDate = new Date()) {
+  const d = new Date(refDate)
+  // If later than 23:00, set to tomorrow at 09:00
+  if (d.getHours() >= 23) {
+    d.setDate(d.getDate() + 1)
+    d.setHours(9, 0, 0, 0)
+  } else {
+    d.setHours(23, 59, 0, 0)
+  }
+  return d.toISOString()
+}
+
 /**
  * Extract clean JSON object from LLM response (handling potential markdown formatting)
  */
@@ -38,18 +59,38 @@ function extractJSON(text) {
   }
 }
 
-function fallbackToLocal(transcript) {
+function fallbackToLocal(transcript, currentTimeISO = new Date().toISOString()) {
   const local = parseVoiceIntent(transcript)
   let action = 'UNKNOWN'
   let replySummary = `Perintah: "${transcript}"`
   let targetView = null
+  const refDate = new Date(currentTimeISO)
+  const defaultDue = getDefaultDueDate(refDate)
+
+  const tasks = []
 
   if (local.type === 'ADD_TASK') {
-    action = 'CREATE_TASK'
-    replySummary = `Tugas "${local.title}" berhasil dibuat.`
+    action = 'CREATE_TASKS'
+    const due = local.startTime || defaultDue
+    tasks.push({
+      title: local.title || transcript,
+      category: local.category || 'General',
+      priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
+      due_date: due,
+      duration_minutes: 30
+    })
+    replySummary = `Tugas "${local.title || transcript}" berhasil dibuat dengan tenggat ${new Date(due).toLocaleDateString('id-ID')}.`
   } else if (local.type === 'SCHEDULE_TASK') {
-    action = 'SCHEDULE_EVENT'
-    replySummary = `Jadwal "${local.title}" berhasil diatur.`
+    action = 'CREATE_TASKS'
+    const due = local.startTime || defaultDue
+    tasks.push({
+      title: local.title || transcript,
+      category: local.category || 'General',
+      priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
+      due_date: due,
+      duration_minutes: 60
+    })
+    replySummary = `Jadwal "${local.title}" berhasil diatur untuk ${new Date(due).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`
   } else if (local.type === 'NAVIGATE') {
     action = 'NAVIGATE'
     targetView = local.view
@@ -63,8 +104,9 @@ function fallbackToLocal(transcript) {
 
   return {
     action,
+    tasks,
     title: local.title || transcript,
-    start_time: local.startTime || null,
+    start_time: local.startTime || defaultDue,
     end_time: local.endTime || null,
     priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
     category: local.category || 'General',
@@ -74,10 +116,63 @@ function fallbackToLocal(transcript) {
   }
 }
 
-function sanitizeAIResult(result, rawTranscript) {
+function sanitizeAIResult(result, rawTranscript, currentTimeISO = new Date().toISOString()) {
   let action = result.action || 'UNKNOWN'
-  if (action === 'ADD_TASK') action = 'CREATE_TASK'
-  if (action === 'SCHEDULE_TASK') action = 'SCHEDULE_EVENT'
+  const defaultDue = getDefaultDueDate(new Date(currentTimeISO))
+
+  // Normalize action names
+  if (action === 'ADD_TASK' || action === 'CREATE_TASK') {
+    action = 'CREATE_TASKS'
+  }
+  if (action === 'SCHEDULE_TASK') {
+    action = 'SCHEDULE_EVENT'
+  }
+
+  let tasks = []
+
+  if (Array.isArray(result.tasks) && result.tasks.length > 0) {
+    action = 'CREATE_TASKS'
+    tasks = result.tasks.map((t) => {
+      const cleanTitle = (t.title || '').trim() || 'Tugas Baru'
+      const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(t.category))
+        ? capitalizeFirstLetter(t.category)
+        : 'General'
+      const prio = ['High', 'Medium', 'Low'].includes(capitalizeFirstLetter(t.priority))
+        ? capitalizeFirstLetter(t.priority)
+        : 'Medium'
+      const due = isValidISO(t.due_date) ? new Date(t.due_date).toISOString() : defaultDue
+      const duration = Math.max(15, parseInt(t.duration_minutes, 10) || 30)
+
+      return {
+        title: cleanTitle,
+        category: cat,
+        priority: prio,
+        due_date: due,
+        duration_minutes: duration
+      }
+    })
+  } else if (result.title && action === 'CREATE_TASKS') {
+    const cleanTitle = result.title.trim()
+    const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(result.category))
+      ? capitalizeFirstLetter(result.category)
+      : 'General'
+    const prio = ['High', 'Medium', 'Low'].includes(capitalizeFirstLetter(result.priority))
+      ? capitalizeFirstLetter(result.priority)
+      : 'Medium'
+    const due = isValidISO(result.due_date || result.start_time)
+      ? new Date(result.due_date || result.start_time).toISOString()
+      : defaultDue
+
+    tasks = [
+      {
+        title: cleanTitle,
+        category: cat,
+        priority: prio,
+        due_date: due,
+        duration_minutes: 30
+      }
+    ]
+  }
 
   let targetView = result.target_view
   if (action === 'NAVIGATE' && !targetView) {
@@ -91,44 +186,89 @@ function sanitizeAIResult(result, rawTranscript) {
     }
   }
 
+  let replySummary = result.reply_summary
+  if (!replySummary) {
+    if (tasks.length > 1) {
+      replySummary = `Berhasil memecah dan menjadwalkan ${tasks.length} tugas ke kalender.`
+    } else if (tasks.length === 1) {
+      replySummary = `Tugas "${tasks[0].title}" berhasil dijadwalkan (${new Date(tasks[0].due_date).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}).`
+    } else {
+      replySummary = `Perintah diproses: "${result.title || rawTranscript}"`
+    }
+  }
+
   return {
     action,
-    title: result.title ? result.title.trim() : '',
-    start_time: result.start_time || null,
+    tasks,
+    title: result.title ? result.title.trim() : tasks[0]?.title || '',
+    start_time: result.start_time || tasks[0]?.due_date || defaultDue,
     end_time: result.end_time || null,
-    priority: result.priority ? capitalizeFirstLetter(result.priority) : 'Medium',
-    category: result.category ? capitalizeFirstLetter(result.category) : 'General',
+    priority: result.priority ? capitalizeFirstLetter(result.priority) : tasks[0]?.priority || 'Medium',
+    category: result.category ? capitalizeFirstLetter(result.category) : tasks[0]?.category || 'General',
     target_view: targetView || null,
-    reply_summary:
-      result.reply_summary || `Perintah diproses: "${result.title || rawTranscript}"`,
+    reply_summary: replySummary,
     raw: rawTranscript
   }
 }
 
 /**
- * Parse user voice or text command into structured intent using Groq Llama 3
+ * Parse user voice or text command into structured intent using Groq Llama 3 with Multi-Task Decomposition
  */
 export async function parseCommandWithAI(transcript, currentTimeISO = new Date().toISOString()) {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY
 
   if (!apiKey || apiKey.trim() === '') {
     console.warn('VITE_GROQ_API_KEY is not configured. Using local intent parser.')
-    return fallbackToLocal(transcript)
+    return fallbackToLocal(transcript, currentTimeISO)
   }
 
-  const systemPrompt = `You are an intelligent task & calendar assistant for a productivity application. Parse user commands (in Indonesian or English) and extract structured intent.
-Current reference ISO time: ${currentTimeISO}.
+  const now = new Date(currentTimeISO)
+  const dayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const dayNamesId = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+  const dayOfWeekEn = dayNamesEn[now.getDay()]
+  const dayOfWeekId = dayNamesId[now.getDay()]
+
+  const systemPrompt = `You are an elite productivity AI agent and multi-task scheduling engine.
+Current reference datetime: ${currentTimeISO} (${dayOfWeekEn} / ${dayOfWeekId}).
+
+Your job is to parse user commands (Indonesian or English) into structured actions.
+KEY CAPABILITY: MULTI-TASK DECOMPOSITION & MANDATORY DEADLINES.
+If the user provides a sentence containing one or more tasks, steps, plans, or deadlines (e.g. "Ada ujian matematika hari selasa jam 13, paginya mau belajar 30 menit jam 7"):
+Decompose them into an array of actionable tasks under "action": "CREATE_TASKS".
+If user gives a single task, also output "action": "CREATE_TASKS" with 1 item in "tasks" array.
+
+RULES FOR TASKS & DEADLINES:
+1. "due_date" is MANDATORY and must NEVER be null:
+   - If exact day and time is mentioned (e.g., "selasa jam 13:00"), calculate the exact future ISO-8601 timestamp based on reference time.
+   - If only a day is mentioned without time (e.g., "besok", "hari jumat"), set due_date to that day at 17:00:00 (or 23:59:00).
+   - If no deadline or time is mentioned at all, infer a sensible default (e.g., today at 23:59:00 or tomorrow morning).
+2. "duration_minutes": Duration in minutes (default 30 or 60).
+3. "priority": "High" | "Medium" | "Low". (e.g., Exams, tests, urgent deadlines = "High").
+4. "category": "General" | "Engineering" | "Design" | "Personal".
+5. Non-task actions:
+   - "SCHEDULE_EVENT" for direct calendar slot blocks.
+   - "NAVIGATE" for view switching ("kalender", "tugas", "fokus").
+   - "CLEAR_COMPLETED" for clearing finished items.
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {
-  "action": "CREATE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
-  "title": "Clean, concise task or event title (omit command words like 'tambah' or 'add')",
+  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "tasks": [
+    {
+      "title": "Clean, concise actionable title",
+      "category": "General" | "Engineering" | "Design" | "Personal",
+      "priority": "High" | "Medium" | "Low",
+      "due_date": "ISO-8601 string (NEVER null)",
+      "duration_minutes": 30
+    }
+  ],
+  "title": "Clean concise title for single event/task",
   "start_time": "ISO-8601 string or null",
   "end_time": "ISO-8601 string or null",
   "priority": "High" | "Medium" | "Low",
   "category": "General" | "Engineering" | "Design" | "Personal",
   "target_view": "calendar" | "tasks" | "focus" | null,
-  "reply_summary": "Friendly Indonesian acknowledgment (e.g. 'Tugas [judul] berhasil ditambahkan', 'Jadwal [judul] diatur pukul [jam]', etc.)"
+  "reply_summary": "Friendly Indonesian acknowledgment (e.g., 'Berhasil memecah dan menambahkan 2 tugas terjadwal ke kalender.')"
 }`
 
   const userPrompt = `User Command: "${transcript}"`
@@ -181,17 +321,17 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
       const fbData = await fallbackResp.json()
       const content = fbData.choices?.[0]?.message?.content
       const parsed = extractJSON(content)
-      if (parsed) return sanitizeAIResult(parsed, transcript)
+      if (parsed) return sanitizeAIResult(parsed, transcript, currentTimeISO)
     } else {
       const data = await response.json()
       const content = data.choices?.[0]?.message?.content
       const parsed = extractJSON(content)
-      if (parsed) return sanitizeAIResult(parsed, transcript)
+      if (parsed) return sanitizeAIResult(parsed, transcript, currentTimeISO)
     }
 
     throw new Error('Could not parse valid JSON from Groq AI response.')
   } catch (err) {
     console.error('Groq AI parseCommand error:', err)
-    return fallbackToLocal(transcript)
+    return fallbackToLocal(transcript, currentTimeISO)
   }
 }

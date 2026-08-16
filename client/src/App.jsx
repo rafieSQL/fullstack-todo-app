@@ -16,6 +16,7 @@ import {
   isRecordingSupported,
   processTextCommand
 } from './utils/audioRecorder.js'
+import { parseCommandWithAI } from './utils/aiService.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -327,64 +328,15 @@ export default function App() {
     }
   }, [showToast])
 
-  // Add Task with input sanitization and length validation
-  const handleAddTask = useCallback(
-    async (e) => {
-      e.preventDefault()
-      const validation = validateTaskTitle(newTaskTitle)
-
-      if (!validation.isValid) {
-        setErrorMessage(validation.error)
-        showToast(validation.error, 'error')
-        return
-      }
-
-      if (isSubmitting) return
-
-      setIsSubmitting(true)
-      setErrorMessage(null)
-
-      const sanitizedTitle = validation.sanitized
-      const tempId = `temp-${Date.now()}`
-      const optimisticTask = {
-        id: tempId,
-        title: sanitizedTitle,
-        priority: newPriority,
-        category: newCategory,
-        order: 0,
-        completed: false,
-        created_at: new Date().toISOString()
-      }
-
-      setTasks((prev) => [optimisticTask, ...prev])
-      setNewTaskTitle('')
-
-      try {
-        const createdTask = await api.createTask({
-          title: sanitizedTitle,
-          priority: newPriority,
-          category: newCategory,
-          userId: session?.user?.id
-        })
-        setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
-        showToast(`Created task in ${newCategory}`)
-        loadActivities()
-      } catch (err) {
-        console.error('Failed to create task:', err)
-        setTasks((prev) => prev.filter((t) => t.id !== tempId))
-        setErrorMessage(`Failed to add task: ${err.message}`)
-        showToast(`Error adding task: ${err.message}`, 'error')
-        setNewTaskTitle(sanitizedTitle)
-      } finally {
-        setIsSubmitting(false)
-      }
-    },
-    [newTaskTitle, newPriority, newCategory, isSubmitting, session, showToast, loadActivities]
-  )
-
-  // Direct programmatic task creation helper for components (e.g. Chronos Calendar sidebar)
+  // Direct programmatic task creation helper for components & AI actions
   const handleCreateTask = useCallback(
-    async ({ title, priority = 'medium', category = 'General' }) => {
+    async ({
+      title,
+      priority = 'medium',
+      category = 'General',
+      due_date = null,
+      duration_minutes = 30
+    }) => {
       const validation = validateTaskTitle(title)
       if (!validation.isValid) {
         showToast(validation.error, 'error')
@@ -392,12 +344,17 @@ export default function App() {
       }
 
       const sanitizedTitle = validation.sanitized
-      const tempId = `temp-${Date.now()}`
+      const validDueDate = due_date
+        ? new Date(due_date).toISOString()
+        : new Date(new Date().setHours(23, 59, 0, 0)).toISOString()
+
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
       const optimisticTask = {
         id: tempId,
         title: sanitizedTitle,
-        priority,
+        priority: priority.toLowerCase(),
         category,
+        due_date: validDueDate,
         order: 0,
         completed: false,
         created_at: new Date().toISOString()
@@ -408,12 +365,31 @@ export default function App() {
       try {
         const createdTask = await api.createTask({
           title: sanitizedTitle,
-          priority,
+          priority: priority.toLowerCase(),
           category,
+          due_date: validDueDate,
           userId: session?.user?.id
         })
+
+        // Synchronously register in Calendar so it displays on the grid immediately
+        const startTime = validDueDate
+        const endTime = new Date(new Date(startTime).getTime() + (duration_minutes || 30) * 60000).toISOString()
+        await api
+          .createCalendarEvent({
+            title: sanitizedTitle,
+            startTime,
+            endTime,
+            taskId: createdTask.id,
+            category,
+            priority: priority.toLowerCase(),
+            autoMorph: true,
+            userId: session?.user?.id
+          })
+          .catch((calErr) => {
+            console.warn('Calendar sync notice for created task:', calErr)
+          })
+
         setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
-        showToast(`Created task: "${sanitizedTitle}"`)
         loadActivities()
         return createdTask
       } catch (err) {
@@ -424,6 +400,86 @@ export default function App() {
       }
     },
     [session, showToast, loadActivities]
+  )
+
+  // Add Task with AI multi-task decomposition & mandatory deadline inference
+  const handleAddTask = useCallback(
+    async (e) => {
+      e.preventDefault()
+      const rawInput = (newTaskTitle || '').trim()
+      if (!rawInput || isSubmitting) return
+
+      setIsSubmitting(true)
+      setErrorMessage(null)
+
+      try {
+        // Send input to AI parser for multi-task decomposition & deadline extraction
+        const parsed = await parseCommandWithAI(rawInput, new Date().toISOString())
+
+        if (parsed.action === 'CREATE_TASKS' || (Array.isArray(parsed.tasks) && parsed.tasks.length > 0)) {
+          const taskList = parsed.tasks || []
+          setNewTaskTitle('')
+
+          for (const t of taskList) {
+            await handleCreateTask({
+              title: t.title,
+              priority: (t.priority || newPriority || 'medium').toLowerCase(),
+              category: t.category || newCategory || 'General',
+              due_date: t.due_date,
+              duration_minutes: t.duration_minutes || 30
+            })
+          }
+
+          sfx.playSuccess()
+          showToast(parsed.reply_summary || `Berhasil menambahkan ${taskList.length} tugas terjadwal ke kalender.`)
+        } else if (parsed.action === 'SCHEDULE_EVENT') {
+          setNewTaskTitle('')
+          const startTime = parsed.start_time || new Date().toISOString()
+          const endTime = parsed.end_time || new Date(new Date(startTime).getTime() + 3600000).toISOString()
+
+          await api.createCalendarEvent({
+            title: parsed.title || rawInput,
+            startTime,
+            endTime,
+            category: parsed.category || newCategory,
+            priority: (parsed.priority || newPriority).toLowerCase(),
+            autoMorph: true,
+            isCompleted: false,
+            userId: session?.user?.id
+          })
+          sfx.playSuccess()
+          showToast(parsed.reply_summary || `Jadwal "${parsed.title}" berhasil diatur.`)
+          setMainTab('calendar')
+        } else {
+          // Standard single task fallback with validated title
+          const validation = validateTaskTitle(rawInput)
+          if (!validation.isValid) {
+            setErrorMessage(validation.error)
+            showToast(validation.error, 'error')
+            return
+          }
+          setNewTaskTitle('')
+          const defaultDue = parsed.start_time || new Date(new Date().setHours(23, 59, 0, 0)).toISOString()
+          await handleCreateTask({
+            title: validation.sanitized,
+            priority: newPriority,
+            category: newCategory,
+            due_date: defaultDue,
+            duration_minutes: 30
+          })
+          sfx.playSuccess()
+          showToast(`Tugas "${validation.sanitized}" berhasil ditambahkan.`)
+        }
+      } catch (err) {
+        console.error('Failed to add task:', err)
+        setErrorMessage(`Gagal menambahkan tugas: ${err.message}`)
+        showToast(`Error: ${err.message}`, 'error')
+        setNewTaskTitle(rawInput)
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [newTaskTitle, newPriority, newCategory, isSubmitting, session, handleCreateTask, showToast]
   )
 
   // Toggle Task Completion with Spam-Click Protection & Busy Lock
@@ -800,12 +856,31 @@ export default function App() {
     async (result = {}, transcript = '') => {
       const action = result.action || 'UNKNOWN'
 
-      if (action === 'CREATE_TASK') {
+      if (action === 'CREATE_TASKS' || (Array.isArray(result.tasks) && result.tasks.length > 0)) {
+        const taskList = result.tasks || []
+        setInterimVoiceText(`⚡ Memproses ${taskList.length} tugas terjadwal...`)
+
+        for (const t of taskList) {
+          await handleCreateTask({
+            title: t.title,
+            priority: (t.priority || 'Medium').toLowerCase(),
+            category: t.category || 'General',
+            due_date: t.due_date,
+            duration_minutes: t.duration_minutes || 30
+          })
+        }
+
+        sfx.playSuccess()
+        setInterimVoiceText(`✓ ${result.reply_summary || `Berhasil menambahkan ${taskList.length} tugas.`}`)
+        showToast(`🤝 Partner: ${result.reply_summary || `Berhasil menambahkan ${taskList.length} tugas terjadwal ke kalender.`}`)
+      } else if (action === 'CREATE_TASK') {
         setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
         await handleCreateTask({
           title: result.title,
           priority: (result.priority || 'Medium').toLowerCase(),
-          category: result.category || 'General'
+          category: result.category || 'General',
+          due_date: result.start_time || result.due_date,
+          duration_minutes: 30
         })
         sfx.playSuccess()
         setInterimVoiceText(`✓ ${result.reply_summary || `Created: "${result.title}"`}`)
@@ -1561,6 +1636,19 @@ export default function App() {
                         <polyline points="12 6 12 12 16 14" />
                       </svg>
                     </button>
+
+                    {/* Due Date Deadline Badge */}
+                    {task.due_date && (
+                      <span
+                        className="task-deadline-badge"
+                        title={`Deadline: ${new Date(task.due_date).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' })}`}
+                      >
+                        📅 {new Date(task.due_date).toLocaleDateString('id-ID', { month: 'short', day: 'numeric' })}{' '}
+                        {new Date(task.due_date).getHours() !== 23 || new Date(task.due_date).getMinutes() !== 59
+                          ? new Date(task.due_date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                          : ''}
+                      </span>
+                    )}
 
                     {/* Category Tag Badge */}
                     <span

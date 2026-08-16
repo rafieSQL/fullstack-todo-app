@@ -118,7 +118,7 @@ export async function getTasks(filters = {}) {
   }
 
   try {
-    let query = supabase.from('tasks').select(TASK_FIELDS)
+    let query = supabase.from('tasks').select('*')
 
     if (filters.status === 'active') {
       query = query.eq('completed', false)
@@ -150,7 +150,25 @@ export async function getTasks(filters = {}) {
       query = query.order('order', { ascending: true }).order('created_at', { ascending: false })
     }
 
-    const { data, error } = await query
+    let { data, error } = await query
+
+    if (error) {
+      let fallbackQuery = supabase.from('tasks').select(TASK_FIELDS)
+      if (filters.status === 'active') fallbackQuery = fallbackQuery.eq('completed', false)
+      if (filters.status === 'completed') fallbackQuery = fallbackQuery.eq('completed', true)
+      if (filters.category && filters.category !== 'all') fallbackQuery = fallbackQuery.ilike('category', filters.category)
+      if (filters.priority && filters.priority !== 'all') fallbackQuery = fallbackQuery.eq('priority', filters.priority)
+      if (filters.search && filters.search.trim() !== '') {
+        const sanitizedSearch = sanitizeText(filters.search, 100)
+        fallbackQuery = fallbackQuery.ilike('title', `%${sanitizedSearch}%`)
+      }
+      fallbackQuery = fallbackQuery.order('order', { ascending: true }).order('created_at', { ascending: false })
+      const fbResult = await fallbackQuery
+      if (!fbResult.error) {
+        data = fbResult.data
+        error = null
+      }
+    }
 
     if (error) throw new ApiError(error.message, 400, error)
     return data || []
@@ -161,9 +179,15 @@ export async function getTasks(filters = {}) {
 }
 
 /**
- * Create a new task with strict input sanitization
+ * Create a new task with strict input sanitization and optional due_date
  */
-export async function createTask({ title, priority = 'medium', category = 'General', userId = null }) {
+export async function createTask({
+  title,
+  priority = 'medium',
+  category = 'General',
+  due_date = null,
+  userId = null
+}) {
   const validation = validateTaskTitle(title)
   if (!validation.isValid) {
     throw new ApiError(validation.error, 400)
@@ -171,13 +195,15 @@ export async function createTask({ title, priority = 'medium', category = 'Gener
 
   const cleanTitle = validation.sanitized
   const cleanCategory = sanitizeText(category, 50) || 'General'
+  const validDueDate = due_date ? new Date(due_date).toISOString() : null
 
   if (!isSupabaseConfigured) {
     const newTask = {
-      id: `mock-${Date.now()}`,
+      id: `mock-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       title: cleanTitle,
       priority,
       category: cleanCategory,
+      due_date: validDueDate,
       order: 0,
       completed: false,
       created_at: new Date().toISOString()
@@ -198,23 +224,36 @@ export async function createTask({ title, priority = 'medium', category = 'Gener
       completed: false,
       order: 0
     }
+    if (validDueDate) {
+      payload.due_date = validDueDate
+    }
     if (userId) {
       payload.user_id = userId
     }
 
-    const { data, error } = await supabase.from('tasks').insert([payload]).select(TASK_FIELDS).single()
+    let { data, error } = await supabase.from('tasks').insert([payload]).select('*').single()
+
+    // If 'due_date' column is not in remote database schema, retry without it
+    if (error && (error.message?.includes('due_date') || error.code === '42703')) {
+      delete payload.due_date
+      const retry = await supabase.from('tasks').insert([payload]).select(TASK_FIELDS).single()
+      data = retry.data
+      error = retry.error
+    }
 
     if (error) throw new ApiError(error.message, 400, error)
+
+    const finalData = { ...data, due_date: data?.due_date || validDueDate }
 
     // Non-blocking activity logging
     logActivity({
       type: 'create',
-      message: `Created task "${data.title}" [${data.category} • ${data.priority.toUpperCase()}]`,
+      message: `Created task "${finalData.title}" [${finalData.category} • ${finalData.priority.toUpperCase()}]`,
       userId,
-      details: { taskId: data.id }
+      details: { taskId: finalData.id, due_date: validDueDate }
     }).catch(() => {})
 
-    return data
+    return finalData
   } catch (err) {
     if (err instanceof ApiError) throw err
     throw new ApiError(err.message || 'Failed to create task in Supabase', 500, err)
