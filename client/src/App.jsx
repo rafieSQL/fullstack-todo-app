@@ -997,15 +997,15 @@ export default function App() {
           >
             {interimVoiceText ||
               (isPartnerRecording
-                ? 'Recording voice note... (Press V or click button to send)'
-                : 'Processing audio...')}
+                ? 'Mendengarkan suara Anda... (Bicara tugas / jadwal Anda)'
+                : 'Memproses perintah...')}
           </span>
           <button
             type="button"
             className="partner-capsule-close"
             onClick={handleTogglePartner}
-            title={isPartnerRecording ? 'Finish and send voice note (V)' : 'Dismiss'}
-            aria-label="Toggle voice note"
+            title="Tutup Partner (V)"
+            aria-label="Tutup Partner"
           >
             ✕
           </button>

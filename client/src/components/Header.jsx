@@ -88,12 +88,12 @@ export default function Header({
           {isPartnerProcessing ? (
             <>
               <span className="voice-pulse-dot" />
-              <span>⚡ Processing audio...</span>
+              <span>⚡ Processing command...</span>
             </>
           ) : isPartnerActive ? (
             <>
               <span className="voice-pulse-dot" />
-              <span>🎙️ Recording voice...</span>
+              <span>🎙️ Listening...</span>
               <kbd className="key-badge" style={{ fontSize: '9px', padding: '0 3px' }}>V</kbd>
             </>
           ) : (
