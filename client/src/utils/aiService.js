@@ -338,11 +338,14 @@ export async function parseCommandWithAI(
   const offsetStr = getLocalTimezoneOffsetString(now)
   const localReferenceISO = formatToLocalISOString(now, offsetStr)
 
-  const cleanTasksList = (activeTasks || []).slice(0, 20).map((t) => ({
+  const activeContextTasks = (activeTasks || []).slice(0, 20).map((t) => ({
     id: t.id || t._id,
-    title: t.title,
+    title: t.title || t.text,
     completed: Boolean(t.completed),
+    category: t.category || t.workspace || 'General',
     workspace: t.category || t.workspace || 'General',
+    priority: t.priority || 'Medium',
+    dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
     time: t.due_date || t.scheduled_at || 'tanpa jadwal'
   }))
 
@@ -358,8 +361,8 @@ export async function parseCommandWithAI(
           transcript,
           clientTime: clientCurrentTime,
           timezone: userTimezone,
-          tasks: cleanTasksList,
-          activeTasks: cleanTasksList
+          tasks: activeContextTasks,
+          activeTasks: activeContextTasks
         })
       },
       7000
