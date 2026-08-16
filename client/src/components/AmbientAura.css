@@ -1,0 +1,56 @@
+/* Ambient Aura Background Layer for Partner Voice Agent */
+.ambient-aura-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  transition: opacity 0.5s ease;
+}
+
+.ambient-aura-glow {
+  position: absolute;
+  inset: -10%;
+  background: radial-gradient(
+    circle at 50% 40%,
+    rgba(228, 228, 231, 0.06) 0%,
+    rgba(59, 130, 246, 0.03) 30%,
+    transparent 70%
+  );
+  animation: auraPulse 6s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+.ambient-aura-layer.listening .ambient-aura-glow {
+  background: radial-gradient(
+    circle at 50% 40%,
+    rgba(16, 185, 129, 0.08) 0%,
+    rgba(228, 228, 231, 0.05) 35%,
+    transparent 70%
+  );
+  animation: auraListeningPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes auraPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes auraListeningPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}

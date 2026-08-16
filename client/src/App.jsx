@@ -4,9 +4,17 @@ import { supabase, isSupabaseConfigured } from './supabaseClient.js'
 import { validateTaskTitle, sanitizeText } from './utils/sanitize.js'
 import { useFocus } from './context/useFocus.js'
 import Auth from './components/Auth.jsx'
+import Header from './components/Header.jsx'
+import AmbientAura from './components/AmbientAura.jsx'
 import FocusSession from './components/FocusSession.jsx'
 import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
+import * as sfx from './utils/sfx.js'
+import {
+  startListening,
+  stopListening,
+  isSpeechRecognitionSupported
+} from './utils/voiceCommandEngine.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -94,6 +102,10 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState(null)
   const [toasts, setToasts] = useState([])
   const [busyTaskIds, setBusyTaskIds] = useState(new Set())
+
+  // Partner Ambient Voice Agent state
+  const [isPartnerActive, setIsPartnerActive] = useState(false)
+  const [isVoiceListening, setIsVoiceListening] = useState(false)
 
   const taskInputRef = useRef(null)
   const searchInputRef = useRef(null)
@@ -779,6 +791,104 @@ export default function App() {
     [session, showToast, loadActivities]
   )
 
+  // Partner Voice Agent Toggle & Intent Execution Handler
+  const handleTogglePartner = useCallback(() => {
+    if (!isSpeechRecognitionSupported()) {
+      showToast(
+        'Voice recognition is not supported in this browser (Chrome / Edge recommended).',
+        'error'
+      )
+      return
+    }
+
+    if (isPartnerActive) {
+      stopListening()
+      setIsPartnerActive(false)
+      setIsVoiceListening(false)
+      sfx.playDeactivate()
+      showToast('🤝 Partner voice agent deactivated.')
+    } else {
+      setIsPartnerActive(true)
+      setIsVoiceListening(true)
+      sfx.playActivate()
+      showToast('🎙️ Partner is listening... Say "Tambah tugas [nama]" or "Buka kalender".')
+
+      startListening({
+        lang: 'id-ID',
+        onFinalCommand: async (intent, transcript) => {
+          if (intent.type === 'ADD_TASK') {
+            try {
+              await handleCreateTask({
+                title: intent.title,
+                priority: intent.priority,
+                category: intent.category
+              })
+              sfx.playSuccess()
+              showToast(`🤝 Partner: Task "${intent.title}" created.`)
+            } catch (err) {
+              showToast(`🤝 Partner error: ${err.message}`, 'error')
+            }
+          } else if (intent.type === 'SCHEDULE_TASK') {
+            try {
+              await api.createCalendarEvent({
+                title: intent.title,
+                startTime: intent.startTime,
+                endTime: intent.endTime,
+                category: intent.category || 'General',
+                priority: intent.priority || 'medium',
+                autoMorph: true,
+                isCompleted: false,
+                userId: session?.user?.id
+              })
+              sfx.playSuccess()
+              setMainTab('calendar')
+              showToast(`🤝 Partner: Scheduled "${intent.title}".`)
+            } catch (err) {
+              showToast(`🤝 Partner schedule error: ${err.message}`, 'error')
+            }
+          } else if (intent.type === 'NAVIGATE') {
+            sfx.playSuccess()
+            if (intent.view === 'focus') {
+              handleOpenFocusSession()
+              showToast('🤝 Partner: Opened Zen Focus mode.')
+            } else {
+              setMainTab(intent.view)
+              showToast(
+                `🤝 Partner: Switched to ${intent.view === 'calendar' ? 'Chronos Calendar' : 'Tasks Registry'}.`
+              )
+            }
+          } else if (intent.type === 'CLEAR_COMPLETED') {
+            try {
+              await handleClearCompleted()
+              sfx.playSuccess()
+              showToast('🤝 Partner: Cleared completed tasks.')
+            } catch (err) {
+              showToast(`🤝 Partner error: ${err.message}`, 'error')
+            }
+          } else {
+            showToast(
+              `🤝 Partner: Didn't catch that ("${transcript}"). Try "Tambah tugas [nama]".`,
+              'info'
+            )
+          }
+        },
+        onError: (err) => {
+          console.debug('Partner speech error:', err)
+        },
+        onEnd: () => {
+          setIsVoiceListening(false)
+        }
+      })
+    }
+  }, [
+    isPartnerActive,
+    session,
+    handleCreateTask,
+    handleClearCompleted,
+    handleOpenFocusSession,
+    showToast
+  ])
+
   // If waiting for auth check
   if (!authInitialized) {
     return (
@@ -815,6 +925,12 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* Ambient Aura Background Layer for Partner Voice Agent */}
+      <AmbientAura
+        isActive={isPartnerActive && viewMode !== 'fullscreen'}
+        isListening={isVoiceListening}
+      />
+
       {/* Fullscreen Zen Pomodoro Overlay */}
       {viewMode === 'fullscreen' && (
         <FocusSession
@@ -852,132 +968,25 @@ export default function App() {
         ))}
       </div>
 
-      {/* Header */}
-      <header className="app-header">
-        <div className="header-title-group">
-          <h1>Task Registry</h1>
-          <div className="header-meta">
-            <span>{metrics.pending} pending item{metrics.pending === 1 ? '' : 's'}</span>
-          </div>
-        </div>
-
-        {/* Main Navigation Switcher (Tasks vs Chronos Calendar) */}
-        <div className="header-nav-tabs" role="tablist" aria-label="Main Navigation">
-          <button
-            type="button"
-            className={`btn-main-nav ${mainTab === 'tasks' ? 'active' : ''}`}
-            onClick={() => setMainTab('tasks')}
-            title="Switch to Tasks Registry (T)"
-            role="tab"
-            aria-selected={mainTab === 'tasks'}
-          >
-            Tasks <kbd className="key-badge" style={{ fontSize: '9px', padding: '0 3px' }}>T</kbd>
-          </button>
-          <button
-            type="button"
-            className={`btn-main-nav ${mainTab === 'calendar' ? 'active' : ''}`}
-            onClick={() => setMainTab('calendar')}
-            title="Switch to Chronos Calendar (C)"
-            role="tab"
-            aria-selected={mainTab === 'calendar'}
-          >
-            Calendar <kbd className="key-badge" style={{ fontSize: '9px', padding: '0 3px' }}>C</kbd>
-          </button>
-        </div>
-
-        <div className="header-actions">
-          {/* 1. Account / Session Pill */}
-          {session ? (
-            <div className="user-session-group" title={`Signed in as ${displayName} (${session.user?.email || ''})`}>
-              <span className="user-email-badge">@{displayName}</span>
-              <button type="button" className="btn-signout" onClick={handleSignOut}>
-                Sign Out
-              </button>
-            </div>
-          ) : (
-            <div className="user-session-group">
-              <span className="user-email-badge">Guest Operator</span>
-              <button
-                type="button"
-                className="btn-signout"
-                onClick={() => setIsDemoMode(false)}
-              >
-                Sign In
-              </button>
-            </div>
-          )}
-
-          {/* 2. Zen Focus Session Trigger */}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => handleOpenFocusSession()}
-            title="Launch Zen Pomodoro Focus Session (F)"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            Focus <kbd className="key-badge" style={{ fontSize: '10px', padding: '0 3px' }}>F</kbd>
-          </button>
-
-          {/* 3. Theme Switcher Button */}
-          <button
-            type="button"
-            className="btn-theme-toggle"
-            onClick={toggleTheme}
-            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
-            aria-label={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
-          >
-            {theme === 'dark' ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5" />
-                <line x1="12" y1="1" x2="12" y2="3" />
-                <line x1="12" y1="21" x2="12" y2="23" />
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                <line x1="1" y1="12" x2="3" y2="12" />
-                <line x1="21" y1="12" x2="23" y2="12" />
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
-          </button>
-
-          {/* 4. Activity Drawer Toggle */}
-          <button
-            type="button"
-            className={`btn-secondary ${isActivityOpen ? 'active' : ''}`}
-            onClick={() => setIsActivityOpen(!isActivityOpen)}
-            title="Toggle system activity log"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-            </svg>
-            Activity {activities.length > 0 && `(${activities.length})`}
-          </button>
-
-          {/* 5. Sync Tasks */}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => loadTasks(true)}
-            title="Refresh tasks from database"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-              <path d="M16 21h5v-5" />
-            </svg>
-            Sync
-          </button>
-        </div>
-      </header>
+      {/* Global Application Header with Navigation & Partner Voice */}
+      <Header
+        metrics={metrics}
+        mainTab={mainTab}
+        setMainTab={setMainTab}
+        session={session}
+        displayName={displayName}
+        handleSignOut={handleSignOut}
+        setIsDemoMode={setIsDemoMode}
+        handleOpenFocusSession={handleOpenFocusSession}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        isActivityOpen={isActivityOpen}
+        setIsActivityOpen={setIsActivityOpen}
+        activities={activities}
+        loadTasks={loadTasks}
+        isPartnerActive={isPartnerActive}
+        onTogglePartner={handleTogglePartner}
+      />
 
       {/* Error / Notice Banner */}
       {errorMessage && (
