@@ -43,18 +43,24 @@ export default function ChronosCalendar({
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [isSidebarDragOver, setIsSidebarDragOver] = useState(false)
 
-  // Real-time minute ticker to refresh dynamic Overdue calculations without DB writes
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 30000)
-    return () => clearInterval(timer)
-  }, [])
-
   // In-Sidebar Quick Task Creator State
   const [quickTitle, setQuickTitle] = useState('')
   const [quickCategory, setQuickCategory] = useState('General')
   const [quickPriority, setQuickPriority] = useState('medium')
   const [isCreatingQuickTask, setIsCreatingQuickTask] = useState(false)
+
+  // Overdue Task Alert Engine & Tracking
+  const [overdueAlerts, setOverdueAlerts] = useState([])
+  const notifiedOverdueIdsRef = useRef(new Set())
+
+  // Request native browser notifications on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {})
+      }
+    }
+  }, [])
 
   // Drag-and-drop state & interaction locks
   const [draggedTask, setDraggedTask] = useState(null)
@@ -165,6 +171,46 @@ export default function ChronosCalendar({
     [isItemCompleted]
   )
 
+  // Background Overdue Detection Ticker (runs every 30s)
+  useEffect(() => {
+    const checkOverdueAlerts = () => {
+      const nowMs = Date.now()
+      const freshlyOverdue = events.filter(
+        (ev) =>
+          !isItemCompleted(ev) &&
+          ev.end_time &&
+          nowMs > new Date(ev.end_time).getTime() &&
+          !notifiedOverdueIdsRef.current.has(ev.id)
+      )
+
+      if (freshlyOverdue.length > 0) {
+        freshlyOverdue.forEach((ev) => notifiedOverdueIdsRef.current.add(ev.id))
+        setOverdueAlerts((prev) => [...prev, ...freshlyOverdue])
+
+        // Native Web Notification
+        freshlyOverdue.forEach((ev) => {
+          if (
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            Notification.permission === 'granted'
+          ) {
+            try {
+              new Notification(`Task Overdue: ${ev.title}`, {
+                body: 'The deadline for this task has passed. Drag it to a new time slot or mark it done.'
+              })
+            } catch {
+              // ignore
+            }
+          }
+        })
+      }
+    }
+
+    checkOverdueAlerts()
+    const timer = setInterval(checkOverdueAlerts, 30000)
+    return () => clearInterval(timer)
+  }, [events, isItemCompleted])
+
   // Unassigned Backlog Tasks (tasks in registry that are NOT completed and NOT scheduled)
   const unassignedTasks = useMemo(() => {
     const scheduledTaskIds = new Set(events.map((e) => e.task_id).filter(Boolean))
@@ -272,6 +318,11 @@ export default function ChronosCalendar({
 
     busyEventIdsRef.current.add(event.id)
 
+    // Clear from active overdue alerts if accomplishing
+    if (nextDone) {
+      setOverdueAlerts((prev) => prev.filter((a) => a.id !== event.id))
+    }
+
     // Optimistic calendar state update
     setEvents((prev) =>
       prev.map((ev) => (ev.id === event.id ? { ...ev, is_completed: nextDone } : ev))
@@ -307,6 +358,46 @@ export default function ChronosCalendar({
     } finally {
       busyEventIdsRef.current.delete(event.id)
     }
+  }
+
+  // Overdue Toast Quick-Action: Extend Deadline by +1 Hour
+  const handleExtendOverdue = async (alertItem) => {
+    const origEnd = new Date(alertItem.end_time).getTime()
+    const newEnd = new Date(Math.max(Date.now(), origEnd) + 3600000).toISOString()
+
+    setEvents((prev) =>
+      prev.map((e) => (e.id === alertItem.id ? { ...e, end_time: newEnd } : e))
+    )
+    setOverdueAlerts((prev) => prev.filter((e) => e.id !== alertItem.id))
+    notifiedOverdueIdsRef.current.delete(alertItem.id)
+    showToast(`Extended "${alertItem.title}" by +1 hour.`)
+
+    try {
+      await updateCalendarEvent(alertItem.id, { end_time: newEnd })
+      logActivity({
+        type: 'update',
+        message: `Extended deadline for "${alertItem.title}" by 1 hour`,
+        userId: user?.id
+      })
+    } catch (err) {
+      console.error('Failed to extend task:', err)
+      showToast(err.message || 'Failed to extend task', 'error')
+    }
+  }
+
+  // Overdue Toast Quick-Action: Open Reschedule Dialog
+  const handleRescheduleOverdue = (alertItem) => {
+    setOverdueAlerts((prev) => prev.filter((e) => e.id !== alertItem.id))
+    setModalState({
+      isOpen: true,
+      mode: 'edit',
+      eventData: { ...alertItem }
+    })
+  }
+
+  // Overdue Toast Quick-Action: Dismiss Alert
+  const handleDismissOverdue = (alertId) => {
+    setOverdueAlerts((prev) => prev.filter((e) => e.id !== alertId))
   }
 
   // Handle Dragging from Sidebar
@@ -406,6 +497,12 @@ export default function ChronosCalendar({
         ...activeItem,
         start_time: start.toISOString(),
         end_time: end.toISOString()
+      }
+
+      // Dismiss active overdue alert if rescheduled to the future
+      if (new Date().getTime() <= end.getTime()) {
+        setOverdueAlerts((prev) => prev.filter((a) => a.id !== activeItem.id))
+        notifiedOverdueIdsRef.current.delete(activeItem.id)
       }
 
       // Optimistic state update
@@ -569,6 +666,7 @@ export default function ChronosCalendar({
   const handleUnscheduleEvent = async (event) => {
     try {
       setEvents((prev) => prev.filter((e) => e.id !== event.id))
+      setOverdueAlerts((prev) => prev.filter((a) => a.id !== event.id))
       await deleteCalendarEvent(event.id)
       setModalState({ isOpen: false, mode: 'create', eventData: null })
       showToast(`Unscheduled "${event.title}" back to backlog.`)
@@ -741,6 +839,7 @@ export default function ChronosCalendar({
     try {
       await deleteCalendarEvent(id)
       setEvents((prev) => prev.filter((e) => e.id !== id))
+      setOverdueAlerts((prev) => prev.filter((a) => a.id !== id))
       setModalState({ isOpen: false, mode: 'create', eventData: null })
       showToast('Task deleted from calendar.')
     } catch (err) {
@@ -757,6 +856,8 @@ export default function ChronosCalendar({
       setModalState({ isOpen: false, mode: 'create', eventData: null })
     }
   }
+
+  const activeOverdueAlert = overdueAlerts.length > 0 ? overdueAlerts[overdueAlerts.length - 1] : null
 
   return (
     <div className="chronos-container">
@@ -1184,6 +1285,53 @@ export default function ChronosCalendar({
           </div>
         )}
       </div>
+
+      {/* Floating In-App Overdue Alert Banner with Quick Actions */}
+      {activeOverdueAlert && (
+        <div className="chronos-overdue-banner" role="alert">
+          <div className="overdue-banner-content">
+            <span className="overdue-banner-icon">⚠️</span>
+            <span className="overdue-banner-text">
+              Task Overdue: <span className="overdue-banner-title">{activeOverdueAlert.title}</span>
+            </span>
+          </div>
+          <div className="overdue-banner-actions">
+            <button
+              type="button"
+              className="btn-overdue-action extend-btn"
+              onClick={() => handleExtendOverdue(activeOverdueAlert)}
+              title="Extend deadline by +1 hour"
+            >
+              +1 Hour
+            </button>
+            <button
+              type="button"
+              className="btn-overdue-action"
+              onClick={() => handleRescheduleOverdue(activeOverdueAlert)}
+              title="Open reschedule dialog"
+            >
+              Reschedule
+            </button>
+            <button
+              type="button"
+              className="btn-overdue-action done-btn"
+              onClick={() => handleToggleEventComplete(activeOverdueAlert)}
+              title="Mark task accomplished"
+            >
+              ✓ Done
+            </button>
+            <button
+              type="button"
+              className="btn-overdue-dismiss"
+              onClick={() => handleDismissOverdue(activeOverdueAlert.id)}
+              title="Dismiss alert"
+              aria-label="Dismiss alert"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modern Floating Modal (Schedule Task) */}
       {modalState.isOpen && (
