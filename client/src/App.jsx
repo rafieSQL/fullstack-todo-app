@@ -698,34 +698,12 @@ export default function App() {
         <div className="header-title-group">
           <h1>Task Registry</h1>
           <div className="header-meta">
-            <span
-              className={`status-dot ${session || isDemoMode ? '' : 'offline'}`}
-              title={isSupabaseConfigured ? 'Supabase PostgreSQL Connected' : 'Demo Sandbox Mode'}
-            />
-            <span>
-              {isSupabaseConfigured
-                ? `Supabase DB Live • ${metrics.pending} pending item${metrics.pending === 1 ? '' : 's'}`
-                : `Sandbox Mode • ${metrics.pending} pending item${metrics.pending === 1 ? '' : 's'}`}
-            </span>
+            <span>{metrics.pending} pending item{metrics.pending === 1 ? '' : 's'}</span>
           </div>
         </div>
 
         <div className="header-actions">
-          {/* Zen Focus Session Trigger */}
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => handleOpenFocusSession()}
-            title="Launch Zen Pomodoro Focus Session (F)"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            Focus <kbd className="key-badge" style={{ fontSize: '10px', padding: '0 3px' }}>F</kbd>
-          </button>
-
-          {/* User Session Info */}
+          {/* 1. Account / Session Pill */}
           {session ? (
             <div className="user-session-group" title={`Signed in as ${session.user?.email}`}>
               <span className="user-email-badge">{session.user?.email}</span>
@@ -746,7 +724,21 @@ export default function App() {
             </div>
           )}
 
-          {/* Theme Switcher Button */}
+          {/* 2. Zen Focus Session Trigger */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => handleOpenFocusSession()}
+            title="Launch Zen Pomodoro Focus Session (F)"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            Focus <kbd className="key-badge" style={{ fontSize: '10px', padding: '0 3px' }}>F</kbd>
+          </button>
+
+          {/* 3. Theme Switcher Button */}
           <button
             type="button"
             className="btn-theme-toggle"
@@ -773,6 +765,7 @@ export default function App() {
             )}
           </button>
 
+          {/* 4. Activity Drawer Toggle */}
           <button
             type="button"
             className={`btn-secondary ${isActivityOpen ? 'active' : ''}`}
@@ -785,6 +778,7 @@ export default function App() {
             Activity {activities.length > 0 && `(${activities.length})`}
           </button>
 
+          {/* 5. Sync Tasks */}
           <button
             type="button"
             className="btn-secondary"

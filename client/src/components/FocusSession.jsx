@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useFocus } from '../context/useFocus.js'
 import { formatFocusTime, MODES, AMBIENT_PRESETS } from '../context/focusConstants.js'
 import './FocusSession.css'
@@ -27,6 +27,54 @@ export default function FocusSession({ onToggleTask }) {
   } = useFocus()
 
   const goalInputRef = useRef(null)
+
+  // Draggable Center Stage State
+  const [centerOffset, setCenterOffset] = useState({ x: 0, y: 0 })
+  const [isDraggingCenter, setIsDraggingCenter] = useState(false)
+  const dragStartRef = useRef({ mouseX: 0, mouseY: 0, startOffsetX: 0, startOffsetY: 0 })
+
+  const handleCenterMouseDown = (e) => {
+    setIsDraggingCenter(true)
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      startOffsetX: centerOffset.x,
+      startOffsetY: centerOffset.y
+    }
+  }
+
+  const handleCenterMouseMove = useCallback(
+    (e) => {
+      if (!isDraggingCenter) return
+      const dx = e.clientX - dragStartRef.current.mouseX
+      const dy = e.clientY - dragStartRef.current.mouseY
+
+      // Clamp offset within reasonable viewport range
+      const clampedX = Math.max(-300, Math.min(300, dragStartRef.current.startOffsetX + dx))
+      const clampedY = Math.max(-160, Math.min(160, dragStartRef.current.startOffsetY + dy))
+
+      setCenterOffset({ x: clampedX, y: clampedY })
+    },
+    [isDraggingCenter]
+  )
+
+  const handleCenterMouseUp = useCallback(() => {
+    setIsDraggingCenter(false)
+  }, [])
+
+  useEffect(() => {
+    if (isDraggingCenter) {
+      window.addEventListener('mousemove', handleCenterMouseMove)
+      window.addEventListener('mouseup', handleCenterMouseUp)
+    } else {
+      window.removeEventListener('mousemove', handleCenterMouseMove)
+      window.removeEventListener('mouseup', handleCenterMouseUp)
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleCenterMouseMove)
+      window.removeEventListener('mouseup', handleCenterMouseUp)
+    }
+  }, [isDraggingCenter, handleCenterMouseMove, handleCenterMouseUp])
 
   // Keyboard Shortcuts (Space, R, Esc to minimize)
   useEffect(() => {
@@ -77,6 +125,18 @@ export default function FocusSession({ onToggleTask }) {
         </div>
 
         <div className="focus-header-right">
+          {/* Reset Position if moved */}
+          {(centerOffset.x !== 0 || centerOffset.y !== 0) && (
+            <button
+              type="button"
+              className="btn-focus-action"
+              onClick={() => setCenterOffset({ x: 0, y: 0 })}
+              title="Reset timer stage to center"
+            >
+              Center View
+            </button>
+          )}
+
           {/* Minimize to PiP Mini-Player */}
           <button
             type="button"
@@ -111,8 +171,22 @@ export default function FocusSession({ onToggleTask }) {
         </div>
       </header>
 
-      {/* Center Stage */}
-      <main className="focus-center-stage">
+      {/* Center Stage (Draggable / Repositionable) */}
+      <main
+        className="focus-center-stage"
+        style={{
+          transform: `translate(${centerOffset.x}px, ${centerOffset.y}px)`
+        }}
+      >
+        {/* Stage Drag Handle */}
+        <div
+          className="focus-drag-handle-bar"
+          onMouseDown={handleCenterMouseDown}
+          title="Click and drag to adjust workspace visual balance"
+        >
+          <span>⋮⋮ Drag Position</span>
+        </div>
+
         {/* Custom Editable Session Goal / Title */}
         <div className="focus-goal-container">
           <input
