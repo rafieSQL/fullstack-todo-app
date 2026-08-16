@@ -438,15 +438,17 @@ export default function App() {
 
       try {
         // Send input to AI parser for multi-task decomposition & deadline extraction (with 7s timeout & active task memory)
-        const activeContextTasks = tasks
-          .filter((t) => !t.completed)
-          .slice(0, 15)
-          .map((t) => ({
-            id: t.id,
-            title: t.title,
-            workspace: t.category || t.workspace || 'General',
-            time: t.due_date || t.scheduled_at || 'tanpa jadwal'
-          }))
+        const taskList = tasks || []
+        const activeContextTasks = taskList.map((t) => ({
+          id: t.id || t._id,
+          title: t.title || t.text,
+          completed: Boolean(t.completed),
+          category: t.category || t.workspace || 'General',
+          workspace: t.category || t.workspace || 'General',
+          priority: t.priority || 'Medium',
+          dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
+          time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+        }))
 
         const parsed = await parseCommandWithAI(rawInput, new Date().toISOString(), null, activeContextTasks)
 
@@ -1108,15 +1110,17 @@ export default function App() {
       setInterimVoiceText(`⚡ Memproses: "${text}"...`)
       sfx.playActivate()
 
-      const activeContextTasks = tasks
-        .filter((t) => !t.completed)
-        .slice(0, 15)
-        .map((t) => ({
-          id: t.id,
-          title: t.title,
-          workspace: t.category || t.workspace || 'General',
-          time: t.due_date || t.scheduled_at || 'tanpa jadwal'
-        }))
+      const taskList = tasks || []
+      const activeContextTasks = taskList.map((t) => ({
+        id: t.id || t._id,
+        title: t.title || t.text,
+        completed: Boolean(t.completed),
+        category: t.category || t.workspace || 'General',
+        workspace: t.category || t.workspace || 'General',
+        priority: t.priority || 'Medium',
+        dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
+        time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+      }))
 
       try {
         const { transcript, result } = await processTextCommand(text, new Date().toISOString(), activeContextTasks)
@@ -1145,15 +1149,17 @@ export default function App() {
 
     if (isPartnerProcessing) return
 
-    const activeContextTasks = tasks
-      .filter((t) => !t.completed)
-      .slice(0, 15)
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        workspace: t.category || t.workspace || 'General',
-        time: t.due_date || t.scheduled_at || 'tanpa jadwal'
-      }))
+    const taskList = tasks || []
+    const activeContextTasks = taskList.map((t) => ({
+      id: t.id || t._id,
+      title: t.title || t.text,
+      completed: Boolean(t.completed),
+      category: t.category || t.workspace || 'General',
+      workspace: t.category || t.workspace || 'General',
+      priority: t.priority || 'Medium',
+      dueDate: t.due_date || t.dueDate || t.scheduled_at || null,
+      time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+    }))
 
     if (!isPartnerRecording) {
       setIsPartnerRecording(true)
