@@ -1,12 +1,15 @@
 /**
  * Partner Ambient Voice Command & Intent Recognition Engine
  * Resilient Web Speech API wrapper with automatic restart loop,
- * microphone permission handling, and dual Indonesian ('id-ID') / English ('en-US') intent parsing.
+ * 1.2s silence interim fallback, and relaxed regex intent matching.
  */
 
 let recognitionInstance = null
 let shouldKeepListening = false
 let restartTimeout = null
+let silenceDebounceTimer = null
+let lastProcessedCommand = ''
+let lastProcessedTime = 0
 
 export function isSpeechRecognitionSupported() {
   if (typeof window === 'undefined') return false
@@ -16,6 +19,15 @@ export function isSpeechRecognitionSupported() {
 function capitalizeFirstLetter(str) {
   if (!str) return ''
   return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+export function normalizeTranscript(text) {
+  if (!text || typeof text !== 'string') return ''
+  return text
+    .toLowerCase()
+    .replace(/[.,?!:;]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 /**
@@ -67,14 +79,15 @@ export function parseScheduleTimes(timeStr) {
 }
 
 /**
- * Regex Intent Parser supporting Indonesian ('id-ID') & English ('en-US')
+ * Highly Permissive Regex Intent Parser supporting Indonesian & English
  */
 export function parseVoiceIntent(rawTranscript) {
-  if (!rawTranscript || typeof rawTranscript !== 'string') {
+  const text = normalizeTranscript(rawTranscript)
+  if (!text) {
     return { type: 'UNKNOWN', raw: rawTranscript }
   }
 
-  const text = rawTranscript.trim().toLowerCase()
+  console.log('🎤 Final Clean Transcript:', text)
 
   // 1. Navigation / View Switching
   const navMatch = text.match(
@@ -122,10 +135,12 @@ export function parseVoiceIntent(rawTranscript) {
     }
   }
 
-  // 4. Add Task: e.g. "tambah tugas [title]", "bikin tugas [title]", "buat task [title]", "add task [title]"
-  const addTaskMatch = text.match(
-    /(?:tambah|bikin|buat|add|create|new)\s+(?:tugas|task|todo)?\s*(.+)/i
-  )
+  // 4. Add Task: Highly permissive regex
+  // Matches: "tambah tugas ABC", "tambah ABC", "tambahkan tugas ABC", "buat tugas ABC", "bikin task ABC", "add task ABC", "add ABC", "create ABC"
+  const addTaskMatch =
+    text.match(/^(?:tambah(?:kan)?|buat|bikin|add|create|new)\s+(?:tugas|task|todo)?\s*(.+)$/i) ||
+    text.match(/(?:tambah(?:kan)?|buat|bikin|add|create|new)\s+(?:tugas|task|todo)\s+(.+)/i)
+
   if (addTaskMatch) {
     let remainder = addTaskMatch[1].trim()
     let priority = 'medium'
@@ -157,7 +172,7 @@ export function parseVoiceIntent(rawTranscript) {
     }
 
     const title = capitalizeFirstLetter(remainder.replace(/^[:\-–]\s*/, '').trim())
-    if (title && title.length >= 2) {
+    if (title && title.length >= 1) {
       return {
         type: 'ADD_TASK',
         title,
@@ -172,7 +187,7 @@ export function parseVoiceIntent(rawTranscript) {
 }
 
 /**
- * Initialize and start voice recognition with automatic restart loop
+ * Initialize and start voice recognition with automatic restart and 1.2s silence fallback
  */
 export function startListening({
   onInterimResult = () => {},
@@ -214,18 +229,40 @@ export function startListening({
         }
       }
 
-      const cleanInterim = interimTranscript.trim()
-      const cleanFinal = finalTranscript.trim()
+      const cleanInterim = normalizeTranscript(interimTranscript)
+      const cleanFinal = normalizeTranscript(finalTranscript)
 
       if (cleanInterim) {
         onInterimResult(cleanInterim)
+
+        // 1.2-Second Silence Debounce on Interim Results:
+        // Automatically process command if no new words arrive and a valid intent is matched
+        clearTimeout(silenceDebounceTimer)
+        const prospectiveIntent = parseVoiceIntent(cleanInterim)
+        if (prospectiveIntent.type !== 'UNKNOWN') {
+          silenceDebounceTimer = setTimeout(() => {
+            const now = Date.now()
+            if (now - lastProcessedTime > 2000 || lastProcessedCommand !== cleanInterim) {
+              lastProcessedTime = now
+              lastProcessedCommand = cleanInterim
+              console.log('🎤 Executing via silence debounce:', cleanInterim)
+              onFinalCommand(prospectiveIntent, cleanInterim)
+            }
+          }, 1200)
+        }
       }
 
       if (cleanFinal) {
-        console.log('Partner heard:', cleanFinal)
-        onInterimResult(cleanFinal)
-        const intent = parseVoiceIntent(cleanFinal)
-        onFinalCommand(intent, cleanFinal)
+        clearTimeout(silenceDebounceTimer)
+        const now = Date.now()
+        if (now - lastProcessedTime > 2000 || lastProcessedCommand !== cleanFinal) {
+          lastProcessedTime = now
+          lastProcessedCommand = cleanFinal
+          console.log('🎤 Final Clean Transcript:', cleanFinal)
+          onInterimResult(cleanFinal)
+          const intent = parseVoiceIntent(cleanFinal)
+          onFinalCommand(intent, cleanFinal)
+        }
       }
     }
 
@@ -293,6 +330,7 @@ export function startListening({
 export function stopListening() {
   shouldKeepListening = false
   clearTimeout(restartTimeout)
+  clearTimeout(silenceDebounceTimer)
 
   if (recognitionInstance) {
     try {

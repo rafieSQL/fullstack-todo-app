@@ -822,24 +822,25 @@ export default function App() {
           setInterimVoiceText(text)
         },
         onFinalCommand: async (intent, transcript) => {
-          setInterimVoiceText(transcript)
-          setTimeout(() => {
-            setInterimVoiceText('')
-          }, 3500)
-
           if (intent.type === 'ADD_TASK') {
+            setInterimVoiceText(`⚡ Executing: "${intent.title}"...`)
             try {
               await handleCreateTask({
                 title: intent.title,
-                priority: intent.priority,
-                category: intent.category
+                priority: intent.priority || 'medium',
+                category: intent.category || 'General'
               })
               sfx.playSuccess()
+              setInterimVoiceText(`✓ Created: "${intent.title}"`)
               showToast(`🤝 Partner: Task "${intent.title}" created.`)
             } catch (err) {
               showToast(`🤝 Partner error: ${err.message}`, 'error')
             }
+            setTimeout(() => {
+              setInterimVoiceText('')
+            }, 2500)
           } else if (intent.type === 'SCHEDULE_TASK') {
+            setInterimVoiceText(`⚡ Scheduling: "${intent.title}"...`)
             try {
               await api.createCalendarEvent({
                 title: intent.title,
@@ -853,34 +854,52 @@ export default function App() {
               })
               sfx.playSuccess()
               setMainTab('calendar')
+              setInterimVoiceText(`✓ Scheduled: "${intent.title}"`)
               showToast(`🤝 Partner: Scheduled "${intent.title}".`)
             } catch (err) {
               showToast(`🤝 Partner schedule error: ${err.message}`, 'error')
             }
+            setTimeout(() => {
+              setInterimVoiceText('')
+            }, 2500)
           } else if (intent.type === 'NAVIGATE') {
             sfx.playSuccess()
             if (intent.view === 'focus') {
               handleOpenFocusSession()
+              setInterimVoiceText('✓ Opened Focus Mode')
               showToast('🤝 Partner: Opened Zen Focus mode.')
             } else {
               setMainTab(intent.view)
+              setInterimVoiceText(`✓ Switched to ${intent.view === 'calendar' ? 'Calendar' : 'Tasks'}`)
               showToast(
                 `🤝 Partner: Switched to ${intent.view === 'calendar' ? 'Chronos Calendar' : 'Tasks Registry'}.`
               )
             }
+            setTimeout(() => {
+              setInterimVoiceText('')
+            }, 2500)
           } else if (intent.type === 'CLEAR_COMPLETED') {
+            setInterimVoiceText('⚡ Purging completed tasks...')
             try {
               await handleClearCompleted()
               sfx.playSuccess()
+              setInterimVoiceText('✓ Cleared completed tasks')
               showToast('🤝 Partner: Cleared completed tasks.')
             } catch (err) {
               showToast(`🤝 Partner error: ${err.message}`, 'error')
             }
+            setTimeout(() => {
+              setInterimVoiceText('')
+            }, 2500)
           } else {
+            setInterimVoiceText(`"${transcript}"`)
             showToast(
               `🤝 Partner: Didn't catch that ("${transcript}"). Try "Tambah tugas [nama]".`,
               'info'
             )
+            setTimeout(() => {
+              setInterimVoiceText('')
+            }, 3000)
           }
         },
         onError: (err) => {
