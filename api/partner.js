@@ -1,3 +1,6 @@
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
 export const config = {
   api: {
     bodyParser: {
@@ -5,6 +8,22 @@ export const config = {
     }
   }
 };
+
+const redis =
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+    ? new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN
+      })
+    : null;
+
+const ratelimit = redis
+  ? new Ratelimit({
+      redis: redis,
+      limiter: Ratelimit.slidingWindow(8, '10 s'),
+      analytics: true
+    })
+  : null;
 
 export default async function handler(req, res) {
   // CORS Headers
@@ -21,6 +40,19 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Rate Limiter Check di baris paling awal
+    if (ratelimit) {
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || '127.0.0.1';
+      const { success, reset } = await ratelimit.limit(`rate_${ip}`);
+
+      if (!success) {
+        return res.status(429).json({
+          error: 'Terlalu banyak permintaan. Silakan tunggu beberapa detik.',
+          retryAfter: reset
+        });
+      }
+    }
+
     let body = req.body;
     if (typeof body === 'string') {
       try {
