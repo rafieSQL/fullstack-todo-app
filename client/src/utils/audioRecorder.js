@@ -82,7 +82,8 @@ export async function startRecording() {
     cancelRecording()
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       throw new Error(
-        'Izin mikrofon ditolak oleh browser. Harap izinkan akses mikrofon di pengaturan browser Anda.'
+        'Izin mikrofon ditolak oleh browser. Harap izinkan akses mikrofon di pengaturan browser Anda.',
+        { cause: error }
       )
     }
     throw error
@@ -180,27 +181,33 @@ export async function transcribeAudioWithWhisper(audioBlob) {
     throw new Error('VITE_GROQ_API_KEY belum dipasang di environment.')
   }
 
-  const formData = new FormData()
-  formData.append('file', audioBlob, 'audio.webm')
-  formData.append('model', 'whisper-large-v3')
-  formData.append('language', 'id')
-  formData.append('response_format', 'json')
+  try {
+    const formData = new FormData()
+    formData.append('file', audioBlob, 'audio.webm')
+    formData.append('model', 'whisper-large-v3')
+    formData.append('language', 'id')
+    formData.append('response_format', 'json')
 
-  const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: formData
-  })
+    // Important: Do NOT manually set Content-Type header; browser calculates multipart boundary
+    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: formData
+    })
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '')
-    throw new Error(`Groq Whisper gagal (${res.status}): ${errText || res.statusText}`)
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      throw new Error(`Groq Whisper (${res.status}): ${errText || res.statusText}`)
+    }
+
+    const data = await res.json()
+    return (data.text || '').trim()
+  } catch (err) {
+    console.warn('Groq Whisper direct audio transcription error:', err.message)
+    throw new Error(err.message || 'Transkripsi audio gagal', { cause: err })
   }
-
-  const data = await res.json()
-  return (data.text || '').trim()
 }
 
 /**

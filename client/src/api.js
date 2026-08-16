@@ -15,7 +15,6 @@ export class ApiError extends Error {
 
 // Columns to fetch for minimal payload transfer
 const TASK_FIELDS = 'id, title, priority, category, completed, "order", created_at, updated_at'
-const ACTIVITY_FIELDS = 'id, type, message, details, created_at'
 
 // In-memory fallback dataset for sandbox/preview mode
 let mockTasks = [
