@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useFocus } from '../context/useFocus.js'
 import {
   formatFocusTime,
@@ -12,7 +12,7 @@ import './FocusSession.css'
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
 const PRIORITIES = ['low', 'medium', 'high']
 
-export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds = new Set() }) {
+export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask, busyTaskIds = new Set() }) {
   const {
     mode,
     customMinutes,
@@ -46,6 +46,11 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
   const [quickCategory, setQuickCategory] = useState('General')
   const [quickPriority, setQuickPriority] = useState('medium')
   const [isAddingTask, setIsAddingTask] = useState(false)
+
+  // Pending tasks sub-backlog in Fullscreen (Top 5 active tasks)
+  const pendingTasks = useMemo(() => {
+    return (tasks || []).filter((t) => !t.completed).slice(0, 5)
+  }, [tasks])
 
   // Draggable Center Stage State
   const [centerOffset, setCenterOffset] = useState({ x: 0, y: 0 })
@@ -97,6 +102,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
   // Handle Quick Task Submission
   const handleQuickTaskSubmit = async (e) => {
     e.preventDefault()
+    e.stopPropagation()
     const validation = validateTaskTitle(quickTitle)
     if (!validation.isValid || isAddingTask) return
 
@@ -119,6 +125,13 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
     } finally {
       setIsAddingTask(false)
     }
+  }
+
+  // Select Task as active focus goal
+  const handleSelectGoalTask = (task, e) => {
+    if (e) e.stopPropagation()
+    setActiveTask(task)
+    setSessionGoal(task.title)
   }
 
   // Keyboard Shortcuts (Space, R, Esc to minimize)
@@ -162,7 +175,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
               key={key}
               type="button"
               className={`focus-mode-btn ${mode === key ? 'active' : ''}`}
-              onClick={() => switchMode(key)}
+              onClick={(e) => {
+                e.stopPropagation()
+                switchMode(key)
+              }}
               role="tab"
               aria-selected={mode === key}
             >
@@ -180,17 +196,23 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
                 key={mins}
                 type="button"
                 className={`duration-preset-chip ${customMinutes === mins ? 'active' : ''}`}
-                onClick={() => setCustomDuration(mins)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setCustomDuration(mins)
+                }}
               >
                 {mins}m
               </button>
             ))}
 
-            <div className="duration-stepper">
+            <div className="duration-stepper" onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
                 className="btn-stepper"
-                onClick={() => setCustomDuration(customMinutes - 5)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setCustomDuration(customMinutes - 5)
+                }}
                 disabled={customMinutes <= 5}
                 title="Decrease duration by 5 minutes"
               >
@@ -208,7 +230,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
               <button
                 type="button"
                 className="btn-stepper"
-                onClick={() => setCustomDuration(customMinutes + 5)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setCustomDuration(customMinutes + 5)
+                }}
                 disabled={customMinutes >= 180}
                 title="Increase duration by 5 minutes"
               >
@@ -224,7 +249,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
             <button
               type="button"
               className="btn-focus-action"
-              onClick={() => setCenterOffset({ x: 0, y: 0 })}
+              onClick={(e) => {
+                e.stopPropagation()
+                setCenterOffset({ x: 0, y: 0 })
+              }}
               title="Reset timer stage to center"
             >
               Center View
@@ -235,7 +263,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
           <button
             type="button"
             className="btn-focus-action"
-            onClick={minimizeSession}
+            onClick={(e) => {
+              e.stopPropagation()
+              minimizeSession()
+            }}
             title="Minimize to Floating Mini-Player (Esc)"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -252,7 +283,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
           <button
             type="button"
             className="btn-focus-action"
-            onClick={endSession}
+            onClick={(e) => {
+              e.stopPropagation()
+              endSession()
+            }}
             title="End Session completely"
             style={{ color: 'var(--text-muted)' }}
           >
@@ -282,7 +316,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
         </div>
 
         {/* Custom Editable Session Goal / Title */}
-        <div className="focus-goal-container">
+        <div className="focus-goal-container" onClick={(e) => e.stopPropagation()}>
           <input
             ref={goalInputRef}
             type="text"
@@ -306,7 +340,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
         </div>
 
         {/* Controls */}
-        <div className="focus-controls-row">
+        <div className="focus-controls-row" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             className="btn-timer-primary"
@@ -346,35 +380,75 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
           </button>
         </div>
 
-        {/* Active Task Context Card */}
-        {activeTask && (
-          <div className="focus-task-card">
-            <div className="focus-task-left">
-              {onToggleTask && (
-                <button
-                  type="button"
-                  className={`custom-checkbox-btn ${activeTask.completed ? 'checked' : ''}`}
-                  onClick={() => onToggleTask(activeTask)}
-                  disabled={busyTaskIds.has(activeTask.id)}
-                  aria-label={`Mark "${activeTask.title}" as ${activeTask.completed ? 'incomplete' : 'complete'}`}
-                >
-                  {activeTask.completed && (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  )}
-                </button>
-              )}
-              <span className={`focus-task-title ${activeTask.completed ? 'completed' : ''}`}>
-                {activeTask.title}
-              </span>
-            </div>
-            <span className="focus-task-tag">{activeTask.category || 'General'}</span>
+        {/* Zen Focus Backlog List (Shows all pending tasks) */}
+        <div className="focus-backlog-container" onClick={(e) => e.stopPropagation()}>
+          <div className="focus-backlog-header">
+            <span>Focus Backlog ({pendingTasks.length} pending)</span>
+            <span style={{ fontSize: '10px', color: 'var(--text-subtle)', fontWeight: 'normal' }}>
+              Click item to target
+            </span>
           </div>
-        )}
+
+          <div className="focus-backlog-list">
+            {pendingTasks.length === 0 ? (
+              <div className="focus-backlog-empty">
+                All pending tasks clear. Add a task below to focus.
+              </div>
+            ) : (
+              pendingTasks.map((task) => {
+                const isTarget = activeTask?.id === task.id
+                const isBusy = busyTaskIds.has(task.id)
+
+                return (
+                  <div
+                    key={task.id}
+                    className={`focus-backlog-item ${isTarget ? 'is-active-target' : ''}`}
+                    onClick={(e) => handleSelectGoalTask(task, e)}
+                    title={`Click to set "${task.title}" as primary focus target`}
+                  >
+                    <div className="focus-item-left">
+                      {onToggleTask && (
+                        <button
+                          type="button"
+                          className={`custom-checkbox-btn ${task.completed ? 'checked' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onToggleTask(task)
+                          }}
+                          disabled={isBusy}
+                          aria-label={`Mark "${task.title}" as complete`}
+                          title={isBusy ? 'Saving...' : 'Mark completed'}
+                        >
+                          {task.completed && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                      <span className={`focus-item-title ${task.completed ? 'completed' : ''}`}>
+                        {task.title}
+                      </span>
+                    </div>
+
+                    <div className="focus-item-right">
+                      {isTarget && (
+                        <span className="focusing-badge">FOCUSING</span>
+                      )}
+                      <span className="focus-tag-badge">{task.category || 'General'}</span>
+                      <span className={`focus-priority-pill ${task.priority || 'medium'}`}>
+                        {task.priority || 'medium'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
 
         {/* Upgraded In-Session Quick Task Creation Card */}
-        <form onSubmit={handleQuickTaskSubmit} className="focus-quick-task-card">
+        <form onSubmit={handleQuickTaskSubmit} className="focus-quick-task-card" onClick={(e) => e.stopPropagation()}>
           <div className="quick-task-input-row">
             <input
               ref={quickTaskInputRef}
@@ -404,7 +478,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
                   key={cat}
                   type="button"
                   className={`quick-chip-btn ${quickCategory === cat ? 'active' : ''}`}
-                  onClick={() => setQuickCategory(cat)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setQuickCategory(cat)
+                  }}
                   disabled={isAddingTask}
                 >
                   {cat}
@@ -420,7 +497,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
                   key={p}
                   type="button"
                   className={`quick-chip-btn priority-${p} ${quickPriority === p ? 'active' : ''}`}
-                  onClick={() => setQuickPriority(p)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setQuickPriority(p)
+                  }}
                   disabled={isAddingTask}
                 >
                   {p.charAt(0).toUpperCase() + p.slice(1)}
@@ -432,7 +512,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
       </main>
 
       {/* Footer & Audio Settings */}
-      <footer className="focus-footer">
+      <footer className="focus-footer" onClick={(e) => e.stopPropagation()}>
         {/* Ambient Sound & Mechanical Clock Tick Bar */}
         <div className="ambient-audio-bar">
           <div className="ambient-presets-group">
@@ -442,7 +522,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
                 key={preset.id}
                 type="button"
                 className={`ambient-preset-btn ${ambientPreset === preset.id ? 'active' : ''}`}
-                onClick={() => changeAmbientPreset(preset.id)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  changeAmbientPreset(preset.id)
+                }}
               >
                 {preset.label}
               </button>
@@ -471,7 +554,10 @@ export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds
             <button
               type="button"
               className={`btn-tick-toggle ${isTickingEnabled ? 'active' : ''}`}
-              onClick={() => setIsTickingEnabled(!isTickingEnabled)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsTickingEnabled(!isTickingEnabled)
+              }}
               title="Toggle rhythmic mechanical clock ticking audio"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

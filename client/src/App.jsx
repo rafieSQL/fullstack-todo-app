@@ -748,6 +748,7 @@ export default function App() {
       {/* Fullscreen Zen Pomodoro Overlay */}
       {viewMode === 'fullscreen' && (
         <FocusSession
+          tasks={tasks}
           busyTaskIds={busyTaskIds}
           onToggleTask={handleToggleTask}
           onQuickAddTask={handleQuickAddTask}

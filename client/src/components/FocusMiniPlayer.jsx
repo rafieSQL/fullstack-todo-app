@@ -45,7 +45,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
 
   // Active Pending Tasks (Top 3–4 items)
   const activePendingTasks = useMemo(() => {
-    return tasks.filter((t) => !t.completed).slice(0, 4)
+    return (tasks || []).filter((t) => !t.completed).slice(0, 4)
   }, [tasks])
 
   // Handle window resizing to keep widget within viewport
@@ -60,9 +60,11 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Drag start handler
+  // Drag start handler (only triggers on the header drag handle)
   const handleMouseDown = (e) => {
-    if (e.target.closest('button') || e.target.closest('input')) return
+    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.mini-tasks-container') || e.target.closest('.mini-quick-add-form')) {
+      return
+    }
 
     setIsDragging(true)
     dragOffsetRef.current = {
@@ -108,6 +110,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
   // Quick Task Add Handler
   const handleQuickSubmit = async (e) => {
     e.preventDefault()
+    e.stopPropagation()
     const validation = validateTaskTitle(quickTitle)
     if (!validation.isValid || isAdding) return
 
@@ -133,7 +136,8 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
   }
 
   // Select Task as active focus goal
-  const handleSelectGoalTask = (task) => {
+  const handleSelectGoalTask = (task, e) => {
+    if (e) e.stopPropagation()
     setActiveTask(task)
     setSessionGoal(task.title)
   }
@@ -148,6 +152,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
       }}
       role="region"
       aria-label="Floating Pomodoro Focus Mini Player"
+      onClick={(e) => e.stopPropagation()}
     >
       {/* Header bar (Drag Handle) */}
       <div
@@ -165,7 +170,10 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
           <button
             type="button"
             className="btn-mini-action"
-            onClick={expandSession}
+            onClick={(e) => {
+              e.stopPropagation()
+              expandSession()
+            }}
             title="Expand to Fullscreen"
             aria-label="Expand to Fullscreen"
           >
@@ -181,7 +189,10 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
           <button
             type="button"
             className="btn-mini-action close"
-            onClick={endSession}
+            onClick={(e) => {
+              e.stopPropagation()
+              endSession()
+            }}
             title="End Focus Session"
             aria-label="End Focus Session"
           >
@@ -208,7 +219,10 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
           <button
             type="button"
             className="btn-mini-play"
-            onClick={togglePlay}
+            onClick={(e) => {
+              e.stopPropagation()
+              togglePlay()
+            }}
             title={isRunning ? 'Pause' : 'Resume'}
             aria-label={isRunning ? 'Pause' : 'Resume'}
           >
@@ -240,11 +254,18 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
             const isTarget = activeTask?.id === task.id
             const isBusy = busyTaskIds.has(task.id)
             return (
-              <div key={task.id} className={`mini-task-item ${isTarget ? 'is-active-goal' : ''}`}>
+              <div
+                key={task.id}
+                className={`mini-task-item ${isTarget ? 'is-active-goal' : ''}`}
+                onClick={(e) => handleSelectGoalTask(task, e)}
+              >
                 <button
                   type="button"
                   className={`mini-checkbox-btn ${task.completed ? 'checked' : ''}`}
-                  onClick={() => onToggleTask(task)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onToggleTask(task)
+                  }}
                   disabled={isBusy}
                   aria-label={`Mark "${task.title}" as complete`}
                   title={isBusy ? 'Saving...' : 'Mark completed'}
@@ -258,8 +279,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
 
                 <span
                   className="mini-task-text"
-                  onClick={() => handleSelectGoalTask(task)}
-                  title={`Focus on: ${task.title}`}
+                  title={`Click to set focus on: ${task.title}`}
                 >
                   {task.title}
                 </span>
@@ -307,7 +327,10 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
                 key={cat}
                 type="button"
                 className={`btn-mini-pill ${quickCategory === cat ? 'active' : ''}`}
-                onClick={() => setQuickCategory(cat)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setQuickCategory(cat)
+                }}
                 disabled={isAdding}
                 title={`Category: ${cat}`}
               >
@@ -323,7 +346,10 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
                 key={p}
                 type="button"
                 className={`btn-mini-pill priority-${p} ${quickPriority === p ? 'active' : ''}`}
-                onClick={() => setQuickPriority(p)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setQuickPriority(p)
+                }}
                 disabled={isAdding}
                 title={`Priority: ${p}`}
               >

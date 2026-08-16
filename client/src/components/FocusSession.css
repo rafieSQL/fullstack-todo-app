@@ -11,7 +11,7 @@
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  padding: 24px 24px;
+  padding: 20px 24px;
   background-color: var(--bg-page);
   color: var(--text-primary);
   animation: focus-fade-in 0.2s ease-out;
@@ -182,7 +182,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
   max-width: 680px;
   width: 100%;
   text-align: center;
@@ -203,7 +203,7 @@
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   cursor: grab;
-  margin-bottom: -8px;
+  margin-bottom: -6px;
   opacity: 0.7;
   transition: opacity 0.15s;
 }
@@ -223,7 +223,7 @@
   justify-content: center;
   gap: 8px;
   width: 100%;
-  max-width: 520px;
+  max-width: 540px;
 }
 
 .focus-goal-input {
@@ -253,7 +253,7 @@
 /* Giant Monospace Timer */
 .focus-timer-display {
   font-family: var(--font-mono);
-  font-size: clamp(80px, 18vw, 150px);
+  font-size: clamp(72px, 16vw, 140px);
   font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 0.9;
@@ -278,14 +278,14 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px 28px;
-  font-size: 15px;
+  padding: 11px 26px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: var(--radius-md);
   background-color: var(--accent-primary);
   color: var(--accent-contrast);
   transition: background-color 0.15s, transform 0.1s;
-  min-width: 150px;
+  min-width: 140px;
 }
 
 .btn-timer-primary:hover {
@@ -301,7 +301,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 12px 18px;
+  padding: 11px 16px;
   font-size: 13px;
   font-weight: 600;
   border-radius: var(--radius-md);
@@ -317,53 +317,152 @@
   border-color: var(--border-dark);
 }
 
-/* Active Task Context Card */
-.focus-task-card {
+/* ==========================================================================
+   Zen Focus Backlog List (Fullscreen View)
+   ========================================================================== */
+
+.focus-backlog-container {
   width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 18px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-subtle);
+  overflow: hidden;
+  text-align: left;
 }
 
-.focus-task-left {
+.focus-backlog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background-color: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-light);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.focus-backlog-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.focus-backlog-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-light);
+  background-color: var(--bg-surface);
+  transition: background-color 0.15s;
+  cursor: pointer;
+}
+
+.focus-backlog-item:last-child {
+  border-bottom: none;
+}
+
+.focus-backlog-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.focus-backlog-item.is-active-target {
+  background-color: var(--bg-subtle);
+  border-left: 3px solid var(--accent-primary);
+}
+
+.focus-item-left {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: 1;
   min-width: 0;
-  text-align: left;
 }
 
-.focus-task-title {
-  font-size: 14px;
+.focus-item-title {
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: none;
 }
 
-.focus-task-title.completed {
+.focus-item-title.completed {
   text-decoration: line-through;
   color: var(--text-muted);
 }
 
-.focus-task-tag {
+.focus-item-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.focusing-badge {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  border: 1px solid var(--text-primary);
+}
+
+.focus-tag-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 3px;
   background-color: var(--bg-subtle);
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
-  white-space: nowrap;
+}
+
+.focus-priority-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.focus-priority-pill.high {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.focus-priority-pill.medium {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.focus-priority-pill.low {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.focus-backlog-empty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
 }
 
 /* Upgraded In-Session Quick Task Form */
@@ -443,12 +542,13 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: 3px;
   background-color: var(--bg-subtle);
   border: 1px solid var(--border-light);
   color: var(--text-secondary);
   transition: all 0.15s;
+  cursor: pointer;
 }
 
 .quick-chip-btn:hover {
@@ -460,6 +560,7 @@
   background-color: var(--text-primary);
   color: var(--accent-contrast);
   border-color: var(--text-primary);
+  font-weight: 700;
 }
 
 .quick-chip-btn.priority-high.active {
@@ -953,23 +1054,26 @@
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 2px;
   background-color: var(--bg-subtle);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border-medium);
   color: var(--text-secondary);
   transition: all 0.1s;
+  cursor: pointer;
 }
 
 .btn-mini-pill:hover {
   background-color: var(--bg-hover);
   color: var(--text-primary);
+  border-color: var(--border-dark);
 }
 
 .btn-mini-pill.active {
   background-color: var(--text-primary);
   color: var(--accent-contrast);
   border-color: var(--text-primary);
+  font-weight: 800;
 }
 
 .btn-mini-pill.priority-high.active {
