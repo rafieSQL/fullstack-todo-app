@@ -106,6 +106,7 @@ export default function App() {
   // Partner Ambient Voice Agent state
   const [isPartnerActive, setIsPartnerActive] = useState(false)
   const [isVoiceListening, setIsVoiceListening] = useState(false)
+  const [interimVoiceText, setInterimVoiceText] = useState('')
 
   const taskInputRef = useRef(null)
   const searchInputRef = useRef(null)
@@ -805,17 +806,27 @@ export default function App() {
       stopListening()
       setIsPartnerActive(false)
       setIsVoiceListening(false)
+      setInterimVoiceText('')
       sfx.playDeactivate()
       showToast('🤝 Partner voice agent deactivated.')
     } else {
       setIsPartnerActive(true)
       setIsVoiceListening(true)
+      setInterimVoiceText('')
       sfx.playActivate()
-      showToast('🎙️ Partner is listening... Say "Tambah tugas [nama]" or "Buka kalender".')
+      showToast('🎙️ Partner is listening... Speak a command or press V to stop.')
 
       startListening({
         lang: 'id-ID',
+        onInterimResult: (text) => {
+          setInterimVoiceText(text)
+        },
         onFinalCommand: async (intent, transcript) => {
+          setInterimVoiceText(transcript)
+          setTimeout(() => {
+            setInterimVoiceText('')
+          }, 3500)
+
           if (intent.type === 'ADD_TASK') {
             try {
               await handleCreateTask({
@@ -874,6 +885,7 @@ export default function App() {
         },
         onError: (err) => {
           console.debug('Partner speech error:', err)
+          showToast(err.message || 'Microphone error.', 'error')
         },
         onEnd: () => {
           setIsVoiceListening(false)
@@ -967,6 +979,36 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* Partner Voice Live Transcription Floating Capsule */}
+      {isPartnerActive && viewMode !== 'fullscreen' && (
+        <div className="partner-transcript-capsule" role="status" aria-live="polite">
+          <div className="partner-capsule-mic">
+            <div className="partner-sound-wave" aria-hidden="true">
+              <span className="partner-sound-bar" />
+              <span className="partner-sound-bar" />
+              <span className="partner-sound-bar" />
+            </div>
+            <span style={{ fontSize: '13px' }}>🎙️</span>
+          </div>
+          <span
+            className={`partner-capsule-text ${!interimVoiceText ? 'listening-placeholder' : ''}`}
+          >
+            {interimVoiceText
+              ? `"${interimVoiceText}"`
+              : "Listening... (e.g. 'Tambah tugas...', 'Buka kalender')"}
+          </span>
+          <button
+            type="button"
+            className="partner-capsule-close"
+            onClick={handleTogglePartner}
+            title="Stop voice agent (V)"
+            aria-label="Stop voice agent"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Global Application Header with Navigation & Partner Voice */}
       <Header

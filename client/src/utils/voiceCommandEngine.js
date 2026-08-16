@@ -1,10 +1,12 @@
 /**
  * Partner Ambient Voice Command & Intent Recognition Engine
- * Zero external dependencies, built on native Web Speech API
+ * Resilient Web Speech API wrapper with automatic restart loop,
+ * microphone permission handling, and dual Indonesian ('id-ID') / English ('en-US') intent parsing.
  */
 
 let recognitionInstance = null
-let isListeningState = false
+let shouldKeepListening = false
+let restartTimeout = null
 
 export function isSpeechRecognitionSupported() {
   if (typeof window === 'undefined') return false
@@ -40,7 +42,8 @@ export function parseScheduleTimes(timeStr) {
         (cleaned.includes('sore') ||
           cleaned.includes('pm') ||
           cleaned.includes('malam') ||
-          cleaned.includes('siang')) &&
+          cleaned.includes('siang') ||
+          cleaned.includes('mlm')) &&
         hour < 12
       ) {
         hour += 12
@@ -55,7 +58,7 @@ export function parseScheduleTimes(timeStr) {
 
   const start = new Date(now)
   start.setHours(hour, minute, 0, 0)
-  const end = new Date(start.getTime() + 3600000) // Default 1 hour duration
+  const end = new Date(start.getTime() + 3600000) // Default 1 hour slot
 
   return {
     startTime: start.toISOString(),
@@ -92,14 +95,16 @@ export function parseVoiceIntent(rawTranscript) {
 
   // 2. Clear Completed Tasks
   if (
-    /(?:hapus|bersihkan|clear|purge|delete)\s+(?:yang\s+)?(?:selesai|completed|done)/i.test(text)
+    /(?:hapus|bersihkan|clear|purge|delete)\s+(?:yang\s+)?(?:selesai|completed|done|task selesai)/i.test(
+      text
+    )
   ) {
     return { type: 'CLEAR_COMPLETED', raw: text }
   }
 
   // 3. Schedule Task: e.g. "jadwalkan [task title] jam 14:00" or "schedule [task title] at 3pm"
   const scheduleMatch = text.match(
-    /(?:jadwalkan|jadwal|schedule)\s+(.+?)\s+(?:jam|pukul|at)\s+(.+)/i
+    /(?:jadwalkan|jadwal|schedule)\s+(.+?)\s+(?:jam|pukul|at|for)\s+(.+)/i
   )
   if (scheduleMatch) {
     const rawTitle = scheduleMatch[1].trim()
@@ -117,8 +122,10 @@ export function parseVoiceIntent(rawTranscript) {
     }
   }
 
-  // 4. Add Task: e.g. "tambah tugas [title] prioritas tinggi" or "add task [title] priority high"
-  const addTaskMatch = text.match(/(?:tambah|buat|add|create|new)\s+(?:tugas|task|todo)\s+(.+)/i)
+  // 4. Add Task: e.g. "tambah tugas [title]", "bikin tugas [title]", "buat task [title]", "add task [title]"
+  const addTaskMatch = text.match(
+    /(?:tambah|bikin|buat|add|create|new)\s+(?:tugas|task|todo)?\s*(.+)/i
+  )
   if (addTaskMatch) {
     let remainder = addTaskMatch[1].trim()
     let priority = 'medium'
@@ -150,7 +157,7 @@ export function parseVoiceIntent(rawTranscript) {
     }
 
     const title = capitalizeFirstLetter(remainder.replace(/^[:\-–]\s*/, '').trim())
-    if (title) {
+    if (title && title.length >= 2) {
       return {
         type: 'ADD_TASK',
         title,
@@ -165,7 +172,7 @@ export function parseVoiceIntent(rawTranscript) {
 }
 
 /**
- * Initialize and start voice recognition
+ * Initialize and start voice recognition with automatic restart loop
  */
 export function startListening({
   onInterimResult = () => {},
@@ -180,76 +187,123 @@ export function startListening({
   }
 
   stopListening()
+  shouldKeepListening = true
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-  const recognition = new SpeechRecognition()
 
-  recognition.continuous = true
-  recognition.interimResults = true
-  recognition.lang = lang
+  const initRecognition = () => {
+    if (!shouldKeepListening) return null
 
-  recognition.onresult = (event) => {
-    let interimTranscript = ''
-    let finalTranscript = ''
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.maxAlternatives = 1
+    recognition.lang = lang || (typeof navigator !== 'undefined' ? navigator.language : 'id-ID')
 
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript
-      if (event.results[i].isFinal) {
-        finalTranscript += transcript
-      } else {
-        interimTranscript += transcript
+    recognition.onresult = (event) => {
+      let interimTranscript = ''
+      let finalTranscript = ''
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const item = event.results[i]
+        const transcript = item[0]?.transcript || ''
+        if (item.isFinal) {
+          finalTranscript += transcript
+        } else {
+          interimTranscript += transcript
+        }
+      }
+
+      const cleanInterim = interimTranscript.trim()
+      const cleanFinal = finalTranscript.trim()
+
+      if (cleanInterim) {
+        onInterimResult(cleanInterim)
+      }
+
+      if (cleanFinal) {
+        console.log('Partner heard:', cleanFinal)
+        onInterimResult(cleanFinal)
+        const intent = parseVoiceIntent(cleanFinal)
+        onFinalCommand(intent, cleanFinal)
       }
     }
 
-    if (interimTranscript) {
-      onInterimResult(interimTranscript)
+    recognition.onerror = (event) => {
+      // Benign non-fatal events
+      if (event.error === 'no-speech' || event.error === 'network') {
+        return
+      }
+
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        shouldKeepListening = false
+        onError(
+          new Error(
+            'Microphone access was denied. Please allow microphone permissions in your browser settings.'
+          )
+        )
+        return
+      }
+
+      if (event.error === 'aborted') {
+        return
+      }
+
+      console.debug('Speech recognition error:', event.error)
+      onError(event)
     }
 
-    if (finalTranscript) {
-      const intent = parseVoiceIntent(finalTranscript)
-      onFinalCommand(intent, finalTranscript)
+    recognition.onend = () => {
+      // If Partner is still active, automatically restart recognition
+      if (shouldKeepListening) {
+        clearTimeout(restartTimeout)
+        restartTimeout = setTimeout(() => {
+          if (shouldKeepListening) {
+            try {
+              recognitionInstance = initRecognition()
+            } catch (err) {
+              console.debug('Restart recognition error:', err)
+            }
+          }
+        }, 200)
+      } else {
+        onEnd()
+      }
+    }
+
+    try {
+      recognition.start()
+      return recognition
+    } catch (err) {
+      if (err.name !== 'InvalidStateError') {
+        console.debug('Recognition start error:', err)
+        onError(err)
+      }
+      return recognition
     }
   }
 
-  recognition.onerror = (event) => {
-    // Ignore benign non-fatal events like no-speech
-    if (event.error === 'no-speech' || event.error === 'aborted') return
-    console.debug('Speech recognition error:', event.error)
-    onError(event)
-  }
-
-  recognition.onend = () => {
-    isListeningState = false
-    onEnd()
-  }
-
-  try {
-    recognition.start()
-    isListeningState = true
-    recognitionInstance = recognition
-  } catch (err) {
-    isListeningState = false
-    onError(err)
-  }
-
-  return recognition
+  recognitionInstance = initRecognition()
+  return recognitionInstance
 }
 
 /**
- * Stop active speech recognition
+ * Stop active speech recognition completely
  */
 export function stopListening() {
+  shouldKeepListening = false
+  clearTimeout(restartTimeout)
+
   if (recognitionInstance) {
     try {
-      recognitionInstance.stop()
+      recognitionInstance.abort()
     } catch {
       // ignore
     }
     recognitionInstance = null
   }
-  isListeningState = false
 }
 
 export function isListening() {
-  return isListeningState
+  return shouldKeepListening
 }
