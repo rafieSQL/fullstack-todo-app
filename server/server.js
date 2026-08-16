@@ -435,11 +435,32 @@ app.use((err, req, res, next) => {
 })
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`========================================`)
   console.log(` Utilitarian Task REST API Server active`)
   console.log(` URL: http://localhost:${PORT}`)
   console.log(` CORS Allowed: ${CLIENT_ORIGIN}`)
   console.log(` Initialized with ${tasks.length} tasks and ${activities.length} activities`)
   console.log(`========================================`)
+})
+
+// Process error and termination handlers
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err)
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
+})
+
+process.on('SIGTERM', () => {
+  server.close(() => {
+    console.log('Process terminated gracefully')
+  })
+})
+
+process.on('SIGINT', () => {
+  server.close(() => {
+    console.log('Process interrupted gracefully')
+  })
 })

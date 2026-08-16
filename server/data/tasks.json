@@ -1,19 +1,5 @@
 [
   {
-    "id": "task-1",
-    "title": "Audit database connection pooling and query timeouts",
-    "priority": "high",
-    "completed": false,
-    "createdAt": "2026-08-16T02:18:55.243Z"
-  },
-  {
-    "id": "task-2",
-    "title": "Review pull request #104: Add idempotency headers to API endpoints",
-    "priority": "medium",
-    "completed": false,
-    "createdAt": "2026-08-16T01:03:55.243Z"
-  },
-  {
     "id": "task-4",
     "title": "Configure automated container vulnerability scanning",
     "priority": "high",

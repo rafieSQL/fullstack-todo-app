@@ -1,5 +1,96 @@
 [
   {
+    "id": "act-1786850555001-zjzw",
+    "type": "clear-completed",
+    "message": "Purged 1 completed task",
+    "timestamp": "2026-08-16T03:22:35.001Z",
+    "count": 1
+  },
+  {
+    "id": "act-1786850396798-4q5l",
+    "type": "update",
+    "message": "Task \"Review pull request #104: Add idempotency headers to API endpoints\": marked as completed",
+    "timestamp": "2026-08-16T03:19:56.798Z",
+    "taskId": "task-2"
+  },
+  {
+    "id": "act-1786850113574-bayj",
+    "type": "delete",
+    "message": "Deleted task \"Batch item 2\"",
+    "timestamp": "2026-08-16T03:15:13.574Z",
+    "taskId": "task-1786850113559-jtthq"
+  },
+  {
+    "id": "act-1786850113571-rrel",
+    "type": "delete",
+    "message": "Deleted task \"Batch item 1\"",
+    "timestamp": "2026-08-16T03:15:13.571Z",
+    "taskId": "task-1786850113553-b5rqn"
+  },
+  {
+    "id": "act-1786850113564-a8et",
+    "type": "batch-complete",
+    "message": "Marked 2 tasks as completed",
+    "timestamp": "2026-08-16T03:15:13.564Z",
+    "count": 2
+  },
+  {
+    "id": "act-1786850113560-siyc",
+    "type": "create",
+    "message": "Created task \"Batch item 2\" [HIGH]",
+    "timestamp": "2026-08-16T03:15:13.560Z",
+    "taskId": "task-1786850113559-jtthq"
+  },
+  {
+    "id": "act-1786850113554-dc2z",
+    "type": "create",
+    "message": "Created task \"Batch item 1\" [LOW]",
+    "timestamp": "2026-08-16T03:15:13.554Z",
+    "taskId": "task-1786850113553-b5rqn"
+  },
+  {
+    "id": "act-1786850100743-8y24",
+    "type": "delete",
+    "message": "Deleted task \"Audit database connection pooling and query timeouts\"",
+    "timestamp": "2026-08-16T03:15:00.743Z",
+    "taskId": "task-1"
+  },
+  {
+    "id": "act-1786850098531-lz3s",
+    "type": "batch-complete",
+    "message": "Marked 1 task as active",
+    "timestamp": "2026-08-16T03:14:58.531Z",
+    "count": 1
+  },
+  {
+    "id": "act-1786850093001-tsy7",
+    "type": "update",
+    "message": "Task \"Audit database connection pooling and query timeouts\": marked as completed",
+    "timestamp": "2026-08-16T03:14:53.001Z",
+    "taskId": "task-1"
+  },
+  {
+    "id": "act-1786850091808-k0bg",
+    "type": "update",
+    "message": "Task \"Audit database connection pooling and query timeouts\": marked as active",
+    "timestamp": "2026-08-16T03:14:51.808Z",
+    "taskId": "task-1"
+  },
+  {
+    "id": "act-1786850090024-f7xa",
+    "type": "batch-complete",
+    "message": "Marked 1 task as completed",
+    "timestamp": "2026-08-16T03:14:50.024Z",
+    "count": 1
+  },
+  {
+    "id": "act-1786850081788-e070",
+    "type": "update",
+    "message": "Task \"Audit database connection pooling and query timeouts\": marked as completed",
+    "timestamp": "2026-08-16T03:14:41.788Z",
+    "taskId": "task-1"
+  },
+  {
     "id": "act-1786850043787-1",
     "type": "create",
     "message": "Initialized system with standard engineering backlog tasks",
