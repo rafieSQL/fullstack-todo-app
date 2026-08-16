@@ -67,6 +67,32 @@ export function formatFullDate(date) {
 }
 
 /**
+ * Format Date to Month Year header (e.g., "August 2026")
+ */
+export function formatMonthYear(date) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date(date))
+}
+
+/**
+ * Get a 6-week matrix (42 days) representing the month view
+ */
+export function getMonthMatrix(baseDate = new Date()) {
+  const d = new Date(baseDate)
+  d.setDate(1) // First day of the month
+  const start = getStartOfWeek(d)
+  const days = []
+  for (let i = 0; i < 35; i++) {
+    const day = new Date(start)
+    day.setDate(start.getDate() + i)
+    days.push(day)
+  }
+  return days
+}
+
+/**
  * Format hour number to 24h string (e.g. 9 -> "09:00", 14 -> "14:00")
  */
 export function formatHour(hour) {
