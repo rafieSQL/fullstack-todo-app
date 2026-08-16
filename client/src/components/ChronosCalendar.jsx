@@ -145,7 +145,20 @@ export default function ChronosCalendar({
     }
   }, [loadEvents])
 
-  // Unassigned Backlog Tasks
+  // Helper to check task completion across both calendar and registry states
+  const isItemCompleted = useCallback(
+    (ev) => {
+      if (ev.is_completed) return true
+      if (ev.task_id) {
+        const matched = tasks.find((t) => t.id === ev.task_id)
+        if (matched?.completed) return true
+      }
+      return false
+    },
+    [tasks]
+  )
+
+  // Unassigned Backlog Tasks (tasks in registry that are NOT completed and NOT scheduled)
   const unassignedTasks = useMemo(() => {
     const scheduledTaskIds = new Set(events.map((e) => e.task_id).filter(Boolean))
     let list = tasks.filter((t) => !t.completed && !scheduledTaskIds.has(t.id))
@@ -160,16 +173,16 @@ export default function ChronosCalendar({
     return list
   }, [tasks, events, sidebarSearch])
 
-  // Overdue Events Check (Strictly for tasks, standalone events are exempt)
+  // Overdue Events Check (Strictly for uncompleted tasks, standalone events are exempt)
   const activeOverdueEvents = useMemo(() => {
     return events.filter(
       (ev) =>
         ev.event_type !== 'event' &&
-        !ev.is_completed &&
+        !isItemCompleted(ev) &&
         new Date(now).getTime() > new Date(ev.end_time).getTime() &&
         !dismissedOverdueIds.has(ev.id)
     )
-  }, [events, now, dismissedOverdueIds])
+  }, [events, now, isItemCompleted, dismissedOverdueIds])
 
   const topOverdueEvent = activeOverdueEvents[0] || null
 
@@ -221,6 +234,7 @@ export default function ChronosCalendar({
         auto_morph: true,
         event_type: 'task',
         recurrence: 'none',
+        is_completed: false,
         task_id: null
       }
     })
@@ -245,9 +259,52 @@ export default function ChronosCalendar({
         auto_morph: false,
         event_type: 'event',
         recurrence: 'none',
+        is_completed: false,
         task_id: null
       }
     })
+  }
+
+  // Inline Task Accomplish / Complete Action (Synchronized with registry)
+  const handleToggleEventComplete = async (event, e) => {
+    if (e) e.stopPropagation()
+    const targetId = event._parentEventId || event.id
+    const currentlyDone = isItemCompleted(event)
+    const nextDone = !currentlyDone
+
+    // Optimistic calendar state update
+    setEvents((prev) =>
+      prev.map((ev) => (ev.id === targetId ? { ...ev, is_completed: nextDone } : ev))
+    )
+
+    // Synchronize matching task in main Task Registry
+    if (event.task_id && onToggleTask) {
+      const matched = tasks.find((t) => t.id === event.task_id)
+      if (matched && matched.completed !== nextDone) {
+        onToggleTask(matched)
+      }
+    }
+
+    if (modalState.isOpen && modalState.eventData?.id === targetId) {
+      setModalState((prev) => ({
+        ...prev,
+        eventData: { ...prev.eventData, is_completed: nextDone }
+      }))
+    }
+
+    showToast(nextDone ? `✓ Accomplished "${event.title}"!` : `Reopened "${event.title}".`)
+    logActivity({
+      type: nextDone ? 'complete' : 'update',
+      message: `${nextDone ? 'Accomplished' : 'Reopened'} "${event.title}" on calendar`,
+      userId: user?.id
+    })
+
+    try {
+      await updateCalendarEvent(targetId, { is_completed: nextDone })
+    } catch (err) {
+      console.error('Failed to sync completion status:', err)
+      loadEvents()
+    }
   }
 
   // Handle Dragging from Sidebar
@@ -495,22 +552,6 @@ export default function ChronosCalendar({
     } catch (err) {
       console.error('Failed to extend deadline:', err)
       loadEvents()
-    }
-  }
-
-  // Complete Overdue Task
-  const handleCompleteOverdueEvent = async (event) => {
-    const targetId = event._parentEventId || event.id
-    try {
-      if (onToggleTask && event.task_id) {
-        const matched = tasks.find((t) => t.id === event.task_id)
-        if (matched) onToggleTask(matched)
-      }
-      setEvents((prev) => prev.filter((e) => e.id !== targetId))
-      await deleteCalendarEvent(targetId)
-      showToast(`✓ Completed & archived "${event.title}"`)
-    } catch (err) {
-      console.error('Failed to complete overdue event:', err)
     }
   }
 
@@ -842,7 +883,7 @@ export default function ChronosCalendar({
                   const isToday = isSameDay(day, new Date())
                   const isOtherMonth = day.getMonth() !== currentDate.getMonth()
                   const dayEvents = visibleEvents.filter((e) => isSameDay(e.start_time, day))
-                  
+
                   // Prioritize standalone events first in month cells
                   const sortedDayEvents = [...dayEvents].sort((a, b) => {
                     if (a.event_type === 'event' && b.event_type !== 'event') return -1
@@ -860,16 +901,17 @@ export default function ChronosCalendar({
                       <span className="month-cell-number">{day.getDate()}</span>
                       {sortedDayEvents.slice(0, 3).map((ev) => {
                         const isEvent = ev.event_type === 'event'
-                        const isOverdue = !isEvent && !ev.is_completed && new Date(now).getTime() > new Date(ev.end_time).getTime()
+                        const isDone = isItemCompleted(ev)
+                        const isOverdue = !isEvent && !isDone && new Date(now).getTime() > new Date(ev.end_time).getTime()
 
                         return (
                           <div
                             key={ev.id}
-                            className={`month-event-pill ${isEvent ? 'is-event' : 'is-task'} ${isOverdue ? 'is-overdue' : ''}`}
+                            className={`month-event-pill ${isEvent ? 'is-event' : 'is-task'} ${isDone ? 'is-completed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
                             onClick={(e) => handleEventClick(e, ev)}
                             title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
                           >
-                            {isEvent ? '📅 ' : isOverdue ? '⚠️ ' : ''}
+                            {isEvent ? '📅 ' : isDone ? '✓ ' : isOverdue ? '⚠️ ' : ''}
                             {ev.title}
                           </div>
                         )
@@ -960,12 +1002,13 @@ export default function ChronosCalendar({
                         const pos = getEventPosition(event.start_time, event.end_time)
                         const categoryClass = `cat-${event.category || 'General'}`
                         const isStandaloneEvent = event.event_type === 'event'
-                        const isOverdue = !isStandaloneEvent && !event.is_completed && new Date(now).getTime() > new Date(event.end_time).getTime()
+                        const isDone = isItemCompleted(event)
+                        const isOverdue = !isStandaloneEvent && !isDone && new Date(now).getTime() > new Date(event.end_time).getTime()
 
                         return (
                           <div
                             key={event.id}
-                            className={`chronos-event-card ${categoryClass} ${isStandaloneEvent ? 'type-event' : ''} ${event._morphed ? 'morphed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
+                            className={`chronos-event-card ${categoryClass} ${isStandaloneEvent ? 'type-event' : ''} ${isDone ? 'is-completed' : ''} ${event._morphed ? 'morphed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
                             style={{
                               top: pos.top,
                               height: pos.height
@@ -976,17 +1019,35 @@ export default function ChronosCalendar({
                             title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — ${isStandaloneEvent ? 'Event / Milestone' : 'Scheduled Task'}`}
                           >
                             <div className="event-card-header">
-                              <span className="event-card-time">
-                                {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
-                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                {/* Inline Accomplish / Check Button */}
+                                {!isStandaloneEvent && (
+                                  <button
+                                    type="button"
+                                    className={`event-check-btn ${isDone ? 'completed' : ''}`}
+                                    onClick={(e) => handleToggleEventComplete(event, e)}
+                                    title={isDone ? 'Mark Incomplete' : 'Mark Accomplished'}
+                                    aria-label={isDone ? 'Mark Incomplete' : 'Mark Accomplished'}
+                                  >
+                                    {isDone ? '✓' : ''}
+                                  </button>
+                                )}
+                                <span className="event-card-time">
+                                  {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
+                                </span>
+                              </div>
+
                               <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+                                {isDone && (
+                                  <span className="event-completed-badge">✓ DONE</span>
+                                )}
                                 {isStandaloneEvent && (
                                   <span className="event-type-badge">📅 EVENT</span>
                                 )}
                                 {isOverdue && (
                                   <span className="event-overdue-badge">⚠️ OVERDUE</span>
                                 )}
-                                {!isStandaloneEvent && event.auto_morph && (
+                                {!isStandaloneEvent && !isDone && event.auto_morph && (
                                   <span className="event-morph-badge" title="Auto-Morph Active">
                                     ⚡
                                   </span>
@@ -999,7 +1060,7 @@ export default function ChronosCalendar({
                             <div className="event-card-footer">
                               <span>{event.category || 'General'}</span>
                               <span className="event-card-badge">
-                                {isStandaloneEvent ? 'AGENDA' : event.priority || 'MED'}
+                                {isStandaloneEvent ? 'AGENDA' : isDone ? 'COMPLETED' : event.priority || 'MED'}
                               </span>
                             </div>
 
@@ -1023,7 +1084,7 @@ export default function ChronosCalendar({
         </div>
       </div>
 
-      {/* Actionable Overdue Alert Banner (Strictly for tasks) */}
+      {/* Actionable Overdue Alert Banner (Strictly for uncompleted tasks) */}
       {topOverdueEvent && (
         <aside className="chronos-overdue-banner" role="alert">
           <div className="overdue-banner-left">
@@ -1037,8 +1098,8 @@ export default function ChronosCalendar({
             <button
               type="button"
               className="btn-overdue-complete"
-              onClick={() => handleCompleteOverdueEvent(topOverdueEvent)}
-              title="Mark task completed and archive"
+              onClick={() => handleToggleEventComplete(topOverdueEvent)}
+              title="Accomplish task now"
             >
               ✓ Complete Task
             </button>
@@ -1308,6 +1369,16 @@ export default function ChronosCalendar({
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
+                  {modalState.mode === 'edit' && modalState.eventData?.event_type !== 'event' && (
+                    <button
+                      type="button"
+                      className={`btn-chronos-toggle-complete ${isItemCompleted(modalState.eventData) ? 'is-done' : ''}`}
+                      onClick={() => handleToggleEventComplete(modalState.eventData)}
+                      title="Toggle task completion"
+                    >
+                      {isItemCompleted(modalState.eventData) ? '↩ Mark Incomplete' : '✓ Accomplish'}
+                    </button>
+                  )}
                   {modalState.mode === 'edit' && (
                     <button
                       type="button"
