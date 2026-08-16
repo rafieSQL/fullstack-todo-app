@@ -16,6 +16,7 @@ export default function Header({
   activities = [],
   loadTasks,
   isPartnerActive = false,
+  isPartnerProcessing = false,
   onTogglePartner = () => {}
 }) {
   // Keyboard Shortcut 'V' for Partner Voice Toggle (when not inside inputs)
@@ -79,15 +80,21 @@ export default function Header({
         {/* Partner Voice Agent Toggle */}
         <button
           type="button"
-          className={`btn-partner-voice ${isPartnerActive ? 'active' : ''}`}
+          className={`btn-partner-voice ${isPartnerActive || isPartnerProcessing ? 'active' : ''}`}
           onClick={onTogglePartner}
-          title="Toggle Partner Voice Agent (V)"
-          aria-pressed={isPartnerActive}
+          title="Toggle Partner Voice Note (V)"
+          aria-pressed={isPartnerActive || isPartnerProcessing}
         >
-          {isPartnerActive ? (
+          {isPartnerProcessing ? (
             <>
               <span className="voice-pulse-dot" />
-              <span>🎙️ Partner is listening...</span>
+              <span>⚡ Processing audio...</span>
+            </>
+          ) : isPartnerActive ? (
+            <>
+              <span className="voice-pulse-dot" />
+              <span>🎙️ Recording voice...</span>
+              <kbd className="key-badge" style={{ fontSize: '9px', padding: '0 3px' }}>V</kbd>
             </>
           ) : (
             <>

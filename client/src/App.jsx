@@ -11,11 +11,11 @@ import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
 import {
-  startListening,
-  stopListening,
-  isSpeechRecognitionSupported
-} from './utils/voiceCommandEngine.js'
-import { parseCommandWithAI } from './utils/aiService.js'
+  startRecording,
+  stopRecording,
+  isRecordingSupported,
+  sendAudioToPartnerVoice
+} from './utils/audioRecorder.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -104,9 +104,9 @@ export default function App() {
   const [toasts, setToasts] = useState([])
   const [busyTaskIds, setBusyTaskIds] = useState(new Set())
 
-  // Partner Ambient Voice Agent state
-  const [isPartnerActive, setIsPartnerActive] = useState(false)
-  const [isVoiceListening, setIsVoiceListening] = useState(false)
+  // Partner Ambient Voice Agent state (Serverless Audio Pipeline)
+  const [isPartnerRecording, setIsPartnerRecording] = useState(false)
+  const [isPartnerProcessing, setIsPartnerProcessing] = useState(false)
   const [interimVoiceText, setInterimVoiceText] = useState('')
 
   const taskInputRef = useRef(null)
@@ -793,120 +793,137 @@ export default function App() {
     [session, showToast, loadActivities]
   )
 
-  // Partner Voice Agent Toggle & Intent Execution Handler
-  const handleTogglePartner = useCallback(() => {
-    if (!isSpeechRecognitionSupported()) {
+  // Partner Ambient Voice Agent Toggle & Serverless Audio Pipeline
+  const handleTogglePartner = useCallback(async () => {
+    if (!isRecordingSupported()) {
       showToast(
-        'Voice recognition is not supported in this browser (Chrome / Edge recommended).',
+        'Audio recording is not supported in this browser (Chrome / Edge / Firefox recommended).',
         'error'
       )
       return
     }
 
-    if (isPartnerActive) {
-      stopListening()
-      setIsPartnerActive(false)
-      setIsVoiceListening(false)
-      setInterimVoiceText('')
-      sfx.playDeactivate()
-      showToast('🤝 Partner voice agent deactivated.')
-    } else {
-      setIsPartnerActive(true)
-      setIsVoiceListening(true)
-      setInterimVoiceText('')
-      sfx.playActivate()
-      showToast('🎙️ Partner is listening... Speak a command or press V to stop.')
+    // Prevent duplicate triggers if currently uploading or reasoning
+    if (isPartnerProcessing) return
 
-      startListening({
-        lang: 'id-ID',
-        onInterimResult: (text) => {
-          setInterimVoiceText(text)
-        },
-        onFinalCommand: async (localIntent, transcript) => {
-          setInterimVoiceText('🤝 Partner is thinking...')
+    if (isPartnerRecording) {
+      // 1. Stop recording and collect audio blob
+      setIsPartnerRecording(false)
+      setIsPartnerProcessing(true)
+      setInterimVoiceText('⚡ Partner is processing audio...')
 
-          try {
-            // Parse user command using Groq Llama 3 (with automatic resilient local fallback)
-            const aiResult = await parseCommandWithAI(transcript, new Date().toISOString())
-            const action = aiResult.action
-
-            if (action === 'CREATE_TASK') {
-              setInterimVoiceText(`⚡ Executing: "${aiResult.title}"...`)
-              await handleCreateTask({
-                title: aiResult.title,
-                priority: (aiResult.priority || 'Medium').toLowerCase(),
-                category: aiResult.category || 'General'
-              })
-              sfx.playSuccess()
-              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
-              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
-            } else if (action === 'SCHEDULE_EVENT') {
-              setInterimVoiceText(`⚡ Scheduling: "${aiResult.title}"...`)
-              const startTime = aiResult.start_time || new Date().toISOString()
-              const endTime =
-                aiResult.end_time ||
-                new Date(new Date(startTime).getTime() + 3600000).toISOString()
-
-              await api.createCalendarEvent({
-                title: aiResult.title,
-                startTime,
-                endTime,
-                category: aiResult.category || 'General',
-                priority: (aiResult.priority || 'Medium').toLowerCase(),
-                autoMorph: true,
-                isCompleted: false,
-                userId: session?.user?.id
-              })
-              sfx.playSuccess()
-              setMainTab('calendar')
-              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
-              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
-            } else if (action === 'NAVIGATE') {
-              sfx.playSuccess()
-              const targetView = aiResult.target_view || 'tasks'
-              if (targetView === 'focus') {
-                handleOpenFocusSession()
-              } else {
-                setMainTab(targetView)
-              }
-              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
-              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
-            } else if (action === 'CLEAR_COMPLETED') {
-              setInterimVoiceText('⚡ Purging completed tasks...')
-              await handleClearCompleted()
-              sfx.playSuccess()
-              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
-              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
-            } else {
-              setInterimVoiceText(`"${transcript}"`)
-              showToast(
-                `🤝 Partner: ${
-                  aiResult.reply_summary || `Tidak dapat mengenali perintah ("${transcript}")`
-                }`,
-                'info'
-              )
-            }
-          } catch (err) {
-            console.error('Partner AI command error:', err)
-            showToast(`Partner error: ${err.message}`, 'error')
-            setInterimVoiceText(`Error: ${err.message}`)
-          } finally {
-            setTimeout(() => {
-              setInterimVoiceText('')
-            }, 3000)
-          }
-        },
-        onError: (err) => {
-          console.debug('Partner speech error:', err)
-          showToast(err.message || 'Microphone error.', 'error')
-        },
-        onEnd: () => {
-          setIsVoiceListening(false)
+      try {
+        const recordingResult = await stopRecording()
+        if (
+          !recordingResult ||
+          !recordingResult.audioBlob ||
+          recordingResult.audioBlob.size === 0
+        ) {
+          setIsPartnerProcessing(false)
+          setInterimVoiceText('')
+          sfx.playDeactivate()
+          showToast('🤝 Recording stopped (no audio captured).')
+          return
         }
-      })
+
+        // 2. Send Audio Blob to Server Pipeline (Groq Whisper-large-v3 + Llama 3.3-70b-versatile)
+        const data = await sendAudioToPartnerVoice(
+          recordingResult.audioBlob,
+          new Date().toISOString()
+        )
+
+        const result = data?.result || {}
+        const transcript = data?.transcript || ''
+        const action = result.action || 'UNKNOWN'
+
+        if (action === 'CREATE_TASK') {
+          setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
+          await handleCreateTask({
+            title: result.title,
+            priority: (result.priority || 'Medium').toLowerCase(),
+            category: result.category || 'General'
+          })
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${result.reply_summary || `Created: "${result.title}"`}`)
+          showToast(`🤝 Partner: ${result.reply_summary || `Task "${result.title}" created.`}`)
+        } else if (action === 'SCHEDULE_EVENT') {
+          setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
+          const startTime = result.start_time || new Date().toISOString()
+          const endTime =
+            result.end_time ||
+            new Date(new Date(startTime).getTime() + 3600000).toISOString()
+
+          await api.createCalendarEvent({
+            title: result.title,
+            startTime,
+            endTime,
+            category: result.category || 'General',
+            priority: (result.priority || 'Medium').toLowerCase(),
+            autoMorph: true,
+            isCompleted: false,
+            userId: session?.user?.id
+          })
+          sfx.playSuccess()
+          setMainTab('calendar')
+          setInterimVoiceText(`✓ ${result.reply_summary || `Scheduled: "${result.title}"`}`)
+          showToast(`🤝 Partner: ${result.reply_summary || `Scheduled "${result.title}".`}`)
+        } else if (action === 'NAVIGATE') {
+          sfx.playSuccess()
+          const targetView = result.target_view || 'tasks'
+          if (targetView === 'focus') {
+            handleOpenFocusSession()
+          } else {
+            setMainTab(targetView)
+          }
+          setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
+          showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
+        } else if (action === 'CLEAR_COMPLETED') {
+          setInterimVoiceText('⚡ Purging completed tasks...')
+          await handleClearCompleted()
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${result.reply_summary || 'Cleared completed tasks'}`)
+          showToast(`🤝 Partner: ${result.reply_summary || 'Cleared completed tasks.'}`)
+        } else {
+          setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
+          showToast(
+            `🤝 Partner: ${
+              result.reply_summary ||
+              (transcript ? `"${transcript}"` : 'Perintah tidak dikenali.')
+            }`,
+            'info'
+          )
+        }
+      } catch (err) {
+        console.error('Partner voice processing error:', err)
+        sfx.playDeactivate()
+        showToast(`Partner error: ${err.message}`, 'error')
+        setInterimVoiceText(`Error: ${err.message}`)
+      } finally {
+        setIsPartnerProcessing(false)
+        setTimeout(() => {
+          setInterimVoiceText('')
+        }, 3500)
+      }
+    } else {
+      // Start recording raw audio
+      try {
+        await startRecording()
+        setIsPartnerRecording(true)
+        setIsPartnerProcessing(false)
+        setInterimVoiceText('🎙️ Recording voice note... Speak your task/schedule.')
+        sfx.playActivate()
+        showToast('🎙️ Partner is recording voice note... Speak your task/schedule.')
+      } catch (err) {
+        console.error('Microphone start error:', err)
+        showToast(err.message, 'error')
+        setIsPartnerRecording(false)
+        setIsPartnerProcessing(false)
+        setInterimVoiceText('')
+      }
     }
   }, [
-    isPartnerActive,
+    isPartnerRecording,
+    isPartnerProcessing,
     session,
     handleCreateTask,
     handleClearCompleted,
@@ -952,8 +969,8 @@ export default function App() {
     <div className="app-container">
       {/* Ambient Aura Background Layer for Partner Voice Agent */}
       <AmbientAura
-        isActive={isPartnerActive && viewMode !== 'fullscreen'}
-        isListening={isVoiceListening}
+        isActive={(isPartnerRecording || isPartnerProcessing) && viewMode !== 'fullscreen'}
+        isListening={isPartnerRecording}
       />
 
       {/* Fullscreen Zen Pomodoro Overlay */}
@@ -993,8 +1010,8 @@ export default function App() {
         ))}
       </div>
 
-      {/* Partner Voice Live Transcription Floating Capsule */}
-      {isPartnerActive && viewMode !== 'fullscreen' && (
+      {/* Partner Voice Live Audio Note Floating Capsule */}
+      {(isPartnerRecording || isPartnerProcessing) && viewMode !== 'fullscreen' && (
         <div className="partner-transcript-capsule" role="status" aria-live="polite">
           <div className="partner-capsule-mic">
             <div className="partner-sound-wave" aria-hidden="true">
@@ -1002,21 +1019,24 @@ export default function App() {
               <span className="partner-sound-bar" />
               <span className="partner-sound-bar" />
             </div>
-            <span style={{ fontSize: '13px' }}>🎙️</span>
+            <span style={{ fontSize: '13px' }}>
+              {isPartnerProcessing ? '⚡' : '🎙️'}
+            </span>
           </div>
           <span
             className={`partner-capsule-text ${!interimVoiceText ? 'listening-placeholder' : ''}`}
           >
-            {interimVoiceText
-              ? `"${interimVoiceText}"`
-              : "Listening... (e.g. 'Tambah tugas...', 'Buka kalender')"}
+            {interimVoiceText ||
+              (isPartnerRecording
+                ? 'Recording voice note... (Press V or click button to send)'
+                : 'Processing audio...')}
           </span>
           <button
             type="button"
             className="partner-capsule-close"
             onClick={handleTogglePartner}
-            title="Stop voice agent (V)"
-            aria-label="Stop voice agent"
+            title={isPartnerRecording ? 'Finish and send voice note (V)' : 'Dismiss'}
+            aria-label="Toggle voice note"
           >
             ✕
           </button>
@@ -1039,7 +1059,8 @@ export default function App() {
         setIsActivityOpen={setIsActivityOpen}
         activities={activities}
         loadTasks={loadTasks}
-        isPartnerActive={isPartnerActive}
+        isPartnerActive={isPartnerRecording}
+        isPartnerProcessing={isPartnerProcessing}
         onTogglePartner={handleTogglePartner}
       />
 
