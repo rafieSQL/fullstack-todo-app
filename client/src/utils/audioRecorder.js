@@ -1,7 +1,6 @@
 /**
- * Partner Clean Audio Recorder & Direct Client-Side Groq AI Pipeline
- * 100% Client-Side Direct Execution (Zero Server /api/ Dependencies).
- * Captures raw microphone audio via MediaRecorder and calls Groq Whisper & Llama 3 directly.
+ * Partner Clean Audio Recorder & Vercel Serverless Bridge
+ * Captures raw microphone audio via MediaRecorder and sends base64 payload to /api/partner-voice.
  */
 
 let mediaStream = null
@@ -157,126 +156,37 @@ export function isRecording() {
 }
 
 /**
- * Send audio blob directly to Groq API (Whisper + Llama 3) from client side
+ * Send audio blob to Vercel Serverless Function (/api/partner-voice)
  */
-export async function sendAudioToPartnerVoice(
-  audioBlob,
-  currentTimeISO = new Date().toISOString()
-) {
+export async function sendAudioToPartnerVoice(audioBlob, currentTimeISO) {
   if (!audioBlob || audioBlob.size === 0) {
     throw new Error('No audio captured. Please speak into the mic before stopping.')
   }
 
-  const GROQ_API_KEY = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
-  if (!GROQ_API_KEY) {
-    throw new Error('Groq API Key is missing in .env!')
-  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(audioBlob)
+    reader.onloadend = async () => {
+      try {
+        const base64Data = reader.result.split(',')[1]
+        const response = await fetch('/api/partner-voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioBase64: base64Data,
+            currentTimeISO: currentTimeISO || new Date().toISOString()
+          })
+        })
 
-  // ==========================================
-  // STEP A: Speech-to-Text (Whisper)
-  // Target: https://api.groq.com/openai/v1/audio/transcriptions
-  // ==========================================
-  const formData = new FormData()
-  formData.append('file', audioBlob, 'recording.webm')
-  formData.append('model', 'whisper-large-v3')
-  formData.append('language', 'id')
-  formData.append('response_format', 'json')
-
-  const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`
-    },
-    body: formData
-  })
-
-  if (!whisperRes.ok) {
-    const errData = await whisperRes.json().catch(() => ({}))
-    throw new Error(errData.error?.message || `Whisper Error: ${whisperRes.status}`)
-  }
-
-  const whisperData = await whisperRes.json()
-  const transcript = (whisperData.text || '').trim()
-
-  if (!transcript) {
-    return {
-      transcript: '',
-      result: {
-        action: 'UNKNOWN',
-        title: '',
-        reply_summary: 'Suara tidak terdeteksi. Silakan coba lagi.'
+        const data = await response.json()
+        if (!response.ok) {
+          throw new Error(data.error || `Server responded with ${response.status}`)
+        }
+        resolve(data)
+      } catch (err) {
+        reject(err)
       }
     }
-  }
-
-  console.log('[Partner Voice] Transcribed:', transcript)
-
-  // ==========================================
-  // STEP B: Structured Intent Extraction (Llama 3)
-  // Target: https://api.groq.com/openai/v1/chat/completions
-  // ==========================================
-  const systemPrompt = `You are an elite productivity AI. Reference ISO time: ${currentTimeISO}. Parse the Indonesian/English transcript into STRICT JSON without markdown:
-{
-  "action": "CREATE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
-  "title": "concise clean title",
-  "start_time": "ISO string or null",
-  "end_time": "ISO string or null",
-  "priority": "High" | "Medium" | "Low",
-  "category": "General" | "Engineering" | "Design" | "Personal",
-  "target_view": "calendar" | "tasks" | "focus" | null,
-  "reply_summary": "Indonesian feedback message"
-}`
-
-  const chatRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: systemPrompt
-        },
-        { role: 'user', content: transcript }
-      ],
-      temperature: 0.1
-    })
+    reader.onerror = () => reject(new Error('Failed to read recorded audio'))
   })
-
-  if (!chatRes.ok) {
-    const errData = await chatRes.json().catch(() => ({}))
-    throw new Error(errData.error?.message || `Groq LLM Error: ${chatRes.status}`)
-  }
-
-  const chatData = await chatRes.json()
-  const rawContent = (chatData.choices?.[0]?.message?.content || '{}')
-    .replace(/```(?:json)?|```/g, '')
-    .trim()
-
-  let parsedResult
-  try {
-    parsedResult = JSON.parse(rawContent)
-  } catch {
-    const match = rawContent.match(/\{[\s\S]*\}/)
-    parsedResult = match ? JSON.parse(match[0]) : { action: 'UNKNOWN', reply_summary: rawContent }
-  }
-
-  console.log('[Partner Voice] Action result:', parsedResult)
-
-  return {
-    transcript,
-    result: {
-      action: parsedResult.action || 'UNKNOWN',
-      title: (parsedResult.title || '').trim(),
-      start_time: parsedResult.start_time || null,
-      end_time: parsedResult.end_time || null,
-      priority: parsedResult.priority || 'Medium',
-      category: parsedResult.category || 'General',
-      target_view: parsedResult.target_view || null,
-      reply_summary: parsedResult.reply_summary || `Perintah diproses: "${transcript}"`
-    }
-  }
 }
