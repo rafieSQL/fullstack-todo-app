@@ -11,8 +11,9 @@ import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
 import {
-  listenAndProcessSpeech,
-  isSpeechRecognitionSupported,
+  startRecording,
+  stopAndProcessAudio,
+  isRecordingSupported,
   processTextCommand
 } from './utils/audioRecorder.js'
 import './App.css'
@@ -890,41 +891,56 @@ export default function App() {
     [partnerPromptInput, executePartnerAction, showToast]
   )
 
-  // Partner Voice Agent - Direct Speech-to-LLM Pipeline with Zero-Fail Text Fallback
+  // Partner Voice Agent - Direct MediaRecorder + Groq Whisper + Llama 3 Pipeline
   const handleTogglePartner = useCallback(async () => {
-    if (!isSpeechRecognitionSupported()) {
+    if (!isRecordingSupported()) {
       setIsPartnerTextPromptOpen(true)
       return
     }
 
-    if (isPartnerRecording || isPartnerProcessing) return
+    if (isPartnerProcessing) return
 
-    setIsPartnerRecording(true)
-    setIsPartnerProcessing(false)
-    setInterimVoiceText('🎙️ Mendengarkan suara Anda...')
-    sfx.playActivate()
-
-    try {
-      const data = await listenAndProcessSpeech((statusText) => {
-        setInterimVoiceText(statusText)
-      })
-
+    if (isPartnerRecording) {
+      // Stop recording and process with Groq Whisper & Llama 3
       setIsPartnerRecording(false)
       setIsPartnerProcessing(true)
+      setInterimVoiceText('⚡ Mentranskripsi via Groq Whisper...')
 
-      await executePartnerAction(data?.result, data?.transcript)
-    } catch (err) {
-      console.warn('Partner voice notice (opening text fallback):', err.message)
-      sfx.playDeactivate()
-      setIsPartnerTextPromptOpen(true)
-      showToast(`Partner Voice: ${err.message || 'Ketik perintah Anda di bawah'}.`, 'info')
-      setInterimVoiceText('Ketik perintah Anda pada kotak Partner...')
-    } finally {
-      setIsPartnerRecording(false)
-      setIsPartnerProcessing(false)
-      setTimeout(() => {
-        setInterimVoiceText('')
-      }, 3500)
+      try {
+        const { transcript, result } = await stopAndProcessAudio((statusText) => {
+          setInterimVoiceText(statusText)
+        })
+        await executePartnerAction(result, transcript)
+      } catch (err) {
+        console.warn('Partner voice error:', err.message)
+        sfx.playDeactivate()
+        setIsPartnerTextPromptOpen(true)
+        showToast(`Partner Voice: ${err.message || 'Ketik perintah Anda di bawah'}.`, 'info')
+        setInterimVoiceText('Ketik perintah Anda pada kotak Partner...')
+      } finally {
+        setIsPartnerRecording(false)
+        setIsPartnerProcessing(false)
+        setTimeout(() => {
+          setInterimVoiceText('')
+        }, 3500)
+      }
+    } else {
+      // Start recording raw audio via MediaRecorder
+      try {
+        await startRecording()
+        setIsPartnerRecording(true)
+        setIsPartnerProcessing(false)
+        setInterimVoiceText('🎙️ Merekam suara... Bicara sekarang lalu tekan V untuk selesai.')
+        sfx.playActivate()
+        showToast('🎙️ Partner sedang merekam suara... Bicara lalu tekan V untuk selesai.')
+      } catch (err) {
+        console.warn('Partner recording start error:', err.message)
+        sfx.playDeactivate()
+        setIsPartnerTextPromptOpen(true)
+        showToast(err.message || 'Gagal mengakses mikrofon', 'error')
+        setIsPartnerRecording(false)
+        setIsPartnerProcessing(false)
+      }
     }
   }, [
     isPartnerRecording,
