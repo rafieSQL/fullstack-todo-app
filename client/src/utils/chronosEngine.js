@@ -77,14 +77,19 @@ export function formatMonthYear(date) {
 }
 
 /**
- * Get a 6-week matrix (42 days) representing the month view
+ * Get a complete 5 or 6-week matrix (35 or 42 days) representing the month view
  */
 export function getMonthMatrix(baseDate = new Date()) {
   const d = new Date(baseDate)
   d.setDate(1) // First day of the month
   const start = getStartOfWeek(d)
+  
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+  const daysSpanned = Math.ceil((lastDay.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+  const totalDays = daysSpanned > 35 ? 42 : 35
+
   const days = []
-  for (let i = 0; i < 35; i++) {
+  for (let i = 0; i < totalDays; i++) {
     const day = new Date(start)
     day.setDate(start.getDate() + i)
     days.push(day)

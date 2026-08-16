@@ -18,19 +18,12 @@ import {
   formatTimeShort,
   getDurationMinutes,
   getEventPosition,
-  expandRecurringEvents,
   morphSchedule
 } from '../utils/chronosEngine.js'
 import './ChronosCalendar.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
 const PRIORITIES = ['low', 'medium', 'high']
-const RECURRENCE_OPTIONS = [
-  { value: 'none', label: 'None (One-time)' },
-  { value: 'daily', label: 'Daily (Every Day)' },
-  { value: 'weekdays', label: 'Weekdays (Mon - Fri)' },
-  { value: 'weekly', label: 'Weekly (Same Day)' }
-]
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
 
 export default function ChronosCalendar({
@@ -48,8 +41,11 @@ export default function ChronosCalendar({
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [isSidebarDragOver, setIsSidebarDragOver] = useState(false)
 
-  // Overdue banner dismissed state
-  const [dismissedOverdueIds, setDismissedOverdueIds] = useState(() => new Set())
+  // Zoom and Pan Canvas State
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const panStartRef = useRef({ startX: 0, startY: 0, panX: 0, panY: 0 })
 
   // Drag-and-drop state
   const [draggedTask, setDraggedTask] = useState(null)
@@ -67,23 +63,10 @@ export default function ChronosCalendar({
     eventData: null
   })
 
-  // Live timer tick for overdue checking (updates every 30s)
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30000)
-    return () => clearInterval(timer)
-  }, [])
-
   // Date Calculations
   const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate])
   const monthDays = useMemo(() => getMonthMatrix(currentDate), [currentDate])
   const displayedDays = viewMode === 'day' ? [currentDate] : weekDays
-  const activeViewDays = viewMode === 'month' ? monthDays : displayedDays
-
-  // Expand recurring items across active date range
-  const visibleEvents = useMemo(() => {
-    return expandRecurringEvents(events, activeViewDays)
-  }, [events, activeViewDays])
 
   const dateRangeTitle = useMemo(() => {
     if (viewMode === 'month') {
@@ -158,6 +141,52 @@ export default function ChronosCalendar({
     [tasks]
   )
 
+  // Auto-Accomplish on Deadline Pass Engine
+  useEffect(() => {
+    const checkAndAutoAccomplish = async () => {
+      const currentMs = new Date().getTime()
+      const expiredItems = events.filter(
+        (ev) => !isItemCompleted(ev) && currentMs >= new Date(ev.end_time).getTime()
+      )
+
+      if (expiredItems.length > 0) {
+        // Optimistically update calendar state
+        setEvents((prev) =>
+          prev.map((ev) =>
+            !ev.is_completed && currentMs >= new Date(ev.end_time).getTime()
+              ? { ...ev, is_completed: true }
+              : ev
+          )
+        )
+
+        for (const exp of expiredItems) {
+          // Sync with main task registry
+          if (exp.task_id && onToggleTask) {
+            const matched = tasks.find((t) => t.id === exp.task_id)
+            if (matched && !matched.completed) {
+              onToggleTask(matched)
+            }
+          }
+
+          try {
+            await updateCalendarEvent(exp.id, { is_completed: true })
+            logActivity({
+              type: 'complete',
+              message: `Auto-accomplished "${exp.title}" on deadline expiration`,
+              userId: user?.id
+            })
+          } catch (err) {
+            console.error('Failed to auto-accomplish task on deadline:', err)
+          }
+        }
+      }
+    }
+
+    checkAndAutoAccomplish()
+    const timer = setInterval(checkAndAutoAccomplish, 15000)
+    return () => clearInterval(timer)
+  }, [events, tasks, onToggleTask, isItemCompleted, user])
+
   // Unassigned Backlog Tasks (tasks in registry that are NOT completed and NOT scheduled)
   const unassignedTasks = useMemo(() => {
     const scheduledTaskIds = new Set(events.map((e) => e.task_id).filter(Boolean))
@@ -172,19 +201,6 @@ export default function ChronosCalendar({
     }
     return list
   }, [tasks, events, sidebarSearch])
-
-  // Overdue Events Check (Strictly for uncompleted tasks, standalone events are exempt)
-  const activeOverdueEvents = useMemo(() => {
-    return events.filter(
-      (ev) =>
-        ev.event_type !== 'event' &&
-        !isItemCompleted(ev) &&
-        new Date(now).getTime() > new Date(ev.end_time).getTime() &&
-        !dismissedOverdueIds.has(ev.id)
-    )
-  }, [events, now, isItemCompleted, dismissedOverdueIds])
-
-  const topOverdueEvent = activeOverdueEvents[0] || null
 
   // Date Navigation Handlers
   const handlePrev = () => {
@@ -215,7 +231,7 @@ export default function ChronosCalendar({
     setCurrentDate(new Date())
   }
 
-  // Handle Slot Click (Quick Create Event or Task)
+  // Handle Slot Click (Quick Create Task)
   const handleSlotClick = (date, hour = 9) => {
     const start = new Date(date)
     start.setHours(hour, 0, 0, 0)
@@ -232,49 +248,21 @@ export default function ChronosCalendar({
         category: 'General',
         priority: 'medium',
         auto_morph: true,
-        event_type: 'task',
-        recurrence: 'none',
         is_completed: false,
         task_id: null
       }
     })
   }
 
-  // Quick "+ Event" Action (for Milestones / Meetings / Agendas)
-  const handleOpenNewEventModal = () => {
-    const start = new Date(currentDate)
-    start.setHours(10, 0, 0, 0)
-    const end = new Date(start)
-    end.setHours(11, 0, 0, 0)
-
-    setModalState({
-      isOpen: true,
-      mode: 'create',
-      eventData: {
-        title: 'Project Milestone / Meeting',
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
-        category: 'Engineering',
-        priority: 'high',
-        auto_morph: false,
-        event_type: 'event',
-        recurrence: 'none',
-        is_completed: false,
-        task_id: null
-      }
-    })
-  }
-
-  // Inline Task Accomplish / Complete Action (Synchronized with registry)
+  // Inline Task Accomplish / Complete Action
   const handleToggleEventComplete = async (event, e) => {
     if (e) e.stopPropagation()
-    const targetId = event._parentEventId || event.id
     const currentlyDone = isItemCompleted(event)
     const nextDone = !currentlyDone
 
     // Optimistic calendar state update
     setEvents((prev) =>
-      prev.map((ev) => (ev.id === targetId ? { ...ev, is_completed: nextDone } : ev))
+      prev.map((ev) => (ev.id === event.id ? { ...ev, is_completed: nextDone } : ev))
     )
 
     // Synchronize matching task in main Task Registry
@@ -285,7 +273,7 @@ export default function ChronosCalendar({
       }
     }
 
-    if (modalState.isOpen && modalState.eventData?.id === targetId) {
+    if (modalState.isOpen && modalState.eventData?.id === event.id) {
       setModalState((prev) => ({
         ...prev,
         eventData: { ...prev.eventData, is_completed: nextDone }
@@ -300,7 +288,7 @@ export default function ChronosCalendar({
     })
 
     try {
-      await updateCalendarEvent(targetId, { is_completed: nextDone })
+      await updateCalendarEvent(event.id, { is_completed: nextDone })
     } catch (err) {
       console.error('Failed to sync completion status:', err)
       loadEvents()
@@ -320,7 +308,7 @@ export default function ChronosCalendar({
     }
   }
 
-  // Handle Dragging Scheduled Event on Grid
+  // Handle Dragging Scheduled Task on Grid
   const handleEventDragStart = (e, event) => {
     e.stopPropagation()
     setDraggedEvent(event)
@@ -345,7 +333,7 @@ export default function ChronosCalendar({
     setDragOverSlot(null)
   }
 
-  // Drop on Slot (Schedule Task OR Reschedule Event)
+  // Drop on Slot (Schedule Task OR Reschedule Task)
   const handleSlotDrop = async (e, date, hour) => {
     e.preventDefault()
     e.stopPropagation()
@@ -371,28 +359,26 @@ export default function ChronosCalendar({
     start.setHours(hour, 0, 0, 0)
 
     if (isDroppingEvent) {
-      // Reschedule existing event to new time
+      // Reschedule existing task to new time
       const origStart = new Date(activeItem.start_time).getTime()
       const origEnd = new Date(activeItem.end_time).getTime()
       const durationMs = Math.max(1800000, origEnd - origStart)
       const end = new Date(start.getTime() + durationMs)
 
-      const targetId = activeItem._parentEventId || activeItem.id
       const updatedEvent = {
         ...activeItem,
-        id: targetId,
         start_time: start.toISOString(),
         end_time: end.toISOString()
       }
 
       // Optimistic state
-      const preList = events.map((ev) => (ev.id === targetId ? updatedEvent : ev))
+      const preList = events.map((ev) => (ev.id === activeItem.id ? updatedEvent : ev))
       const { morphedEvents: optMorphed, changedEvents } = morphSchedule(preList, autoMorphEnabled)
       setEvents(optMorphed)
       showToast(`Rescheduled "${activeItem.title}" to ${formatHour(hour)}`)
 
       try {
-        await updateCalendarEvent(targetId, {
+        await updateCalendarEvent(activeItem.id, {
           start_time: updatedEvent.start_time,
           end_time: updatedEvent.end_time
         })
@@ -400,12 +386,12 @@ export default function ChronosCalendar({
           for (const ev of changedEvents) {
             await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
           }
-          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} events to prevent overlap.`)
+          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} tasks to prevent overlap.`)
         }
       } catch (err) {
-        console.error('Failed to reschedule event:', err)
+        console.error('Failed to reschedule task:', err)
         loadEvents()
-        showToast('Failed to reschedule event.', 'error')
+        showToast('Failed to reschedule task.', 'error')
       }
       return
     }
@@ -424,8 +410,6 @@ export default function ChronosCalendar({
       category: activeItem.category || 'General',
       priority: activeItem.priority || 'medium',
       auto_morph: true,
-      event_type: 'task',
-      recurrence: 'none',
       is_completed: false,
       created_at: start.toISOString()
     }
@@ -444,8 +428,6 @@ export default function ChronosCalendar({
         category: activeItem.category || 'General',
         priority: activeItem.priority || 'medium',
         autoMorph: true,
-        eventType: 'task',
-        recurrence: 'none',
         userId: user?.id
       })
 
@@ -468,7 +450,7 @@ export default function ChronosCalendar({
             await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
           }
         }
-        showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} events to prevent overlap.`)
+        showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} tasks to prevent overlap.`)
       }
     } catch (err) {
       console.error('Failed to drop task onto calendar:', err)
@@ -509,49 +491,22 @@ export default function ChronosCalendar({
     }
   }
 
-  // Unschedule Event (Delete from calendar, return task to backlog)
+  // Unschedule Task (Delete from calendar, return task to backlog)
   const handleUnscheduleEvent = async (event) => {
-    const targetId = event._parentEventId || event.id
     try {
-      setEvents((prev) => prev.filter((e) => e.id !== targetId))
-      await deleteCalendarEvent(targetId)
+      setEvents((prev) => prev.filter((e) => e.id !== event.id))
+      await deleteCalendarEvent(event.id)
       setModalState({ isOpen: false, mode: 'create', eventData: null })
       showToast(`Unscheduled "${event.title}" back to backlog.`)
       logActivity({
         type: 'delete',
-        message: `Unscheduled event from calendar: "${event.title}"`,
+        message: `Unscheduled task from calendar: "${event.title}"`,
         userId: user?.id
       })
     } catch (err) {
-      console.error('Failed to unschedule event:', err)
+      console.error('Failed to unschedule task:', err)
       loadEvents()
-      showToast('Failed to unschedule event.', 'error')
-    }
-  }
-
-  // Extend Deadline / Duration (+30m)
-  const handleExtendEventDeadline = async (event, minutes = 30) => {
-    const currentEnd = new Date(event.end_time).getTime()
-    const newEnd = new Date(currentEnd + minutes * 60000).toISOString()
-
-    const targetId = event._parentEventId || event.id
-    const updatedEvent = { ...event, id: targetId, end_time: newEnd }
-    const preList = events.map((e) => (e.id === targetId ? updatedEvent : e))
-    const { morphedEvents, changedEvents } = morphSchedule(preList, autoMorphEnabled)
-    setEvents(morphedEvents)
-
-    showToast(`Extended "${event.title}" by +${minutes}m`)
-
-    try {
-      await updateCalendarEvent(targetId, { end_time: newEnd })
-      if (changedEvents.length > 0) {
-        for (const ev of changedEvents) {
-          await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
-        }
-      }
-    } catch (err) {
-      console.error('Failed to extend deadline:', err)
-      loadEvents()
+      showToast('Failed to unschedule task.', 'error')
     }
   }
 
@@ -576,9 +531,8 @@ export default function ChronosCalendar({
       const startMs = new Date(resizeStartRef.current.event.start_time).getTime()
       const newEnd = new Date(startMs + newDuration * 60000).toISOString()
 
-      const targetId = resizingEvent._parentEventId || resizingEvent.id
       setEvents((prev) =>
-        prev.map((ev) => (ev.id === targetId ? { ...ev, end_time: newEnd } : ev))
+        prev.map((ev) => (ev.id === resizingEvent.id ? { ...ev, end_time: newEnd } : ev))
       )
     },
     [resizingEvent]
@@ -586,8 +540,7 @@ export default function ChronosCalendar({
 
   const handleResizeEnd = useCallback(async () => {
     if (!resizingEvent) return
-    const targetId = resizingEvent._parentEventId || resizingEvent.id
-    const target = events.find((e) => e.id === targetId)
+    const target = events.find((e) => e.id === resizingEvent.id)
     setResizingEvent(null)
 
     if (target) {
@@ -602,7 +555,7 @@ export default function ChronosCalendar({
           }
         }
       } catch (err) {
-        console.error('Failed to save resized event:', err)
+        console.error('Failed to save resized task:', err)
       }
     }
   }, [resizingEvent, events, autoMorphEnabled])
@@ -621,11 +574,51 @@ export default function ChronosCalendar({
     }
   }, [resizingEvent, handleResizeMove, handleResizeEnd])
 
+  // Interactive Zoom & Pan Listeners
+  const handleWheel = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const delta = e.deltaY * -0.0015
+      setZoom((prev) => Math.min(1.4, Math.max(0.65, Number((prev + delta).toFixed(2)))))
+    }
+  }
+
+  const handleCanvasMouseDown = (e) => {
+    // Only pan if clicking empty background or holding middle mouse
+    if (e.button === 1 || e.target.classList.contains('chronos-canvas-viewport') || e.target.classList.contains('chronos-month-container') || e.target.classList.contains('chronos-grid-wrapper')) {
+      setIsPanning(true)
+      panStartRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        panX: pan.x,
+        panY: pan.y
+      }
+    }
+  }
+
+  const handleCanvasMouseMove = (e) => {
+    if (!isPanning) return
+    const dx = e.clientX - panStartRef.current.startX
+    const dy = e.clientY - panStartRef.current.startY
+    setPan({
+      x: panStartRef.current.panX + dx,
+      y: panStartRef.current.panY + dy
+    })
+  }
+
+  const handleCanvasMouseUp = () => {
+    if (isPanning) setIsPanning(false)
+  }
+
+  const handleResetZoom = () => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+  }
+
   // Open Event Details / Edit Modal
   const handleEventClick = (e, event) => {
     e.stopPropagation()
-    const targetId = event._parentEventId || event.id
-    const original = events.find((item) => item.id === targetId) || event
+    const original = events.find((item) => item.id === event.id) || event
 
     setModalState({
       isOpen: true,
@@ -646,21 +639,19 @@ export default function ChronosCalendar({
           category: formData.category,
           priority: formData.priority,
           autoMorph: formData.auto_morph,
-          eventType: formData.event_type || 'task',
-          recurrence: formData.recurrence || 'none',
           userId: user?.id
         })
 
         const updatedList = [...events, created]
         const { morphedEvents, changedEvents } = morphSchedule(updatedList, autoMorphEnabled)
         setEvents(morphedEvents)
-        showToast(`Created ${formData.event_type === 'event' ? 'event' : 'task'} "${formData.title}"`)
+        showToast(`Scheduled task "${formData.title}"`)
 
         if (changedEvents.length > 0) {
           for (const ev of changedEvents) {
             await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
           }
-          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} events to prevent overlap.`)
+          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} tasks to prevent overlap.`)
         }
       } else {
         const updated = await updateCalendarEvent(formData.id, formData)
@@ -673,13 +664,13 @@ export default function ChronosCalendar({
           for (const ev of changedEvents) {
             await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
           }
-          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} events to prevent overlap.`)
+          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} tasks to prevent overlap.`)
         }
       }
       setModalState({ isOpen: false, mode: 'create', eventData: null })
     } catch (err) {
-      console.error('Failed to save event:', err)
-      showToast(err.message || 'Failed to save event.', 'error')
+      console.error('Failed to save task:', err)
+      showToast(err.message || 'Failed to save task.', 'error')
     }
   }
 
@@ -689,10 +680,10 @@ export default function ChronosCalendar({
       await deleteCalendarEvent(id)
       setEvents((prev) => prev.filter((e) => e.id !== id))
       setModalState({ isOpen: false, mode: 'create', eventData: null })
-      showToast('Event deleted.')
+      showToast('Task deleted from calendar.')
     } catch (err) {
-      console.error('Failed to delete event:', err)
-      showToast('Failed to delete event.', 'error')
+      console.error('Failed to delete task:', err)
+      showToast('Failed to delete task.', 'error')
     }
   }
 
@@ -737,16 +728,6 @@ export default function ChronosCalendar({
         </div>
 
         <div className="chronos-nav-group">
-          {/* Quick "+ Event" Action (Milestone/Meeting) */}
-          <button
-            type="button"
-            className="chronos-btn-new-event"
-            onClick={handleOpenNewEventModal}
-            title="Create a Standalone Event or Milestone"
-          >
-            <span>+ Event</span>
-          </button>
-
           {/* Velocity Auto-Morph Shield Toggle */}
           <button
             type="button"
@@ -795,7 +776,7 @@ export default function ChronosCalendar({
         </div>
       </header>
 
-      {/* Main Body (Sidebar + Grid) */}
+      {/* Main Body (Sidebar + Canvas) */}
       <div className="chronos-body">
         {/* Unassigned Task Backlog Sidebar (Accepts drops to unschedule) */}
         <aside
@@ -865,163 +846,165 @@ export default function ChronosCalendar({
           )}
         </aside>
 
-        {/* Calendar Grid Area */}
-        <div className="chronos-grid-wrapper">
-          {viewMode === 'month' ? (
-            /* Month Matrix View */
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%' }}>
-              <div className="chronos-month-header-row">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-                  <div key={day} className="chronos-month-header-cell">
-                    {day}
-                  </div>
-                ))}
-              </div>
-
-              <div className="chronos-month-grid">
-                {monthDays.map((day) => {
-                  const isToday = isSameDay(day, new Date())
-                  const isOtherMonth = day.getMonth() !== currentDate.getMonth()
-                  const dayEvents = visibleEvents.filter((e) => isSameDay(e.start_time, day))
-
-                  // Prioritize standalone events first in month cells
-                  const sortedDayEvents = [...dayEvents].sort((a, b) => {
-                    if (a.event_type === 'event' && b.event_type !== 'event') return -1
-                    if (a.event_type !== 'event' && b.event_type === 'event') return 1
-                    return new Date(a.start_time) - new Date(b.start_time)
-                  })
-
-                  return (
-                    <div
-                      key={day.toISOString()}
-                      className={`chronos-month-cell ${isOtherMonth ? 'is-other-month' : ''} ${isToday ? 'is-today' : ''}`}
-                      onClick={() => handleSlotClick(day, 9)}
-                      title={`Click date to schedule item on ${day.toLocaleDateString()}`}
-                    >
-                      <span className="month-cell-number">{day.getDate()}</span>
-                      {sortedDayEvents.slice(0, 3).map((ev) => {
-                        const isEvent = ev.event_type === 'event'
-                        const isDone = isItemCompleted(ev)
-                        const isOverdue = !isEvent && !isDone && new Date(now).getTime() > new Date(ev.end_time).getTime()
-
-                        return (
-                          <div
-                            key={ev.id}
-                            className={`month-event-pill ${isEvent ? 'is-event' : 'is-task'} ${isDone ? 'is-completed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
-                            onClick={(e) => handleEventClick(e, ev)}
-                            title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
-                          >
-                            {isEvent ? '📅 ' : isDone ? '✓ ' : isOverdue ? '⚠️ ' : ''}
-                            {ev.title}
-                          </div>
-                        )
-                      })}
-                      {sortedDayEvents.length > 3 && (
-                        <span style={{ fontSize: '9px', color: '#71717a', fontWeight: 'bold' }}>
-                          +{sortedDayEvents.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ) : (
-            /* Week & Day Timeline View */
-            <>
-              {/* Days Header Row */}
-              <div className={`chronos-days-header-row ${viewMode === 'day' ? 'day-view' : ''}`}>
-                <div className="chronos-time-gutter-header">GMT</div>
-                {displayedDays.map((day) => {
-                  const isToday = isSameDay(day, new Date())
-                  return (
-                    <div
-                      key={day.toISOString()}
-                      className={`chronos-day-col-header ${isToday ? 'is-today' : ''}`}
-                    >
-                      <span className="col-header-weekday">
-                        {day.toLocaleDateString('en-US', { weekday: 'short' })}
-                      </span>
-                      <span className="col-header-number">{day.getDate()}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Timeline Grid */}
-              <div className={`chronos-timeline-grid ${viewMode === 'day' ? 'day-view' : ''}`}>
-                {/* Time Gutter */}
-                <div className="chronos-time-gutter">
-                  {HOURS.map((hour) => (
-                    <div key={hour} className="chronos-hour-label">
-                      {formatHour(hour)}
+        {/* Interactive Zoomable & Pannable Canvas Viewport */}
+        <div
+          className={`chronos-canvas-viewport ${isPanning ? 'is-panning' : ''}`}
+          onWheel={handleWheel}
+          onMouseDown={handleCanvasMouseDown}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
+        >
+          {/* Canvas Transform Container */}
+          <div
+            className="chronos-canvas-transform"
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: '0 0'
+            }}
+          >
+            {viewMode === 'month' ? (
+              /* Strict 7-Column Month Matrix View */
+              <div className="chronos-month-container">
+                <div className="chronos-month-header-row">
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                    <div key={day} className="chronos-month-header-cell">
+                      {day}
                     </div>
                   ))}
                 </div>
 
-                {/* Day Columns */}
-                {displayedDays.map((day) => {
-                  const isToday = isSameDay(day, new Date())
-                  const dayEvents = visibleEvents.filter((e) => isSameDay(e.start_time, day))
+                <div className="chronos-month-grid">
+                  {monthDays.map((day) => {
+                    const isToday = isSameDay(day, new Date())
+                    const isOtherMonth = day.getMonth() !== currentDate.getMonth()
+                    const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
 
-                  return (
-                    <div
-                      key={day.toISOString()}
-                      className={`chronos-day-column ${isToday ? 'is-today' : ''}`}
-                    >
-                      {/* Current Time Red Line for Today */}
-                      {isToday && (
-                        <div
-                          className="chronos-current-time-line"
-                          style={{
-                            top: `${((new Date().getHours() * 60 + new Date().getMinutes()) / 1440) * 100}%`
-                          }}
-                        />
-                      )}
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`chronos-month-cell ${isOtherMonth ? 'is-other-month' : ''} ${isToday ? 'is-today' : ''}`}
+                        onClick={() => handleSlotClick(day, 9)}
+                        title={`Click to schedule task on ${day.toLocaleDateString()}`}
+                      >
+                        <span className="month-cell-number">{day.getDate()}</span>
+                        {dayEvents.slice(0, 3).map((ev) => {
+                          const isDone = isItemCompleted(ev)
 
-                      {/* 24 Hour Clickable / Droppable Slots */}
-                      {HOURS.map((hour) => {
-                        const slotKey = `${day.toISOString()}-${hour}`
-                        const isOver = dragOverSlot === slotKey
+                          return (
+                            <div
+                              key={ev.id}
+                              className={`month-event-pill ${isDone ? 'is-completed' : ''}`}
+                              onClick={(e) => handleEventClick(e, ev)}
+                              title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
+                            >
+                              {isDone ? '✓ ' : ''}
+                              {ev.title}
+                            </div>
+                          )
+                        })}
+                        {dayEvents.length > 3 && (
+                          <span style={{ fontSize: '9px', color: '#71717a', fontWeight: 'bold' }}>
+                            +{dayEvents.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* Week & Day Timeline View */
+              <div className="chronos-grid-wrapper">
+                {/* Days Header Row */}
+                <div className={`chronos-days-header-row ${viewMode === 'day' ? 'day-view' : ''}`}>
+                  <div className="chronos-time-gutter-header">GMT</div>
+                  {displayedDays.map((day) => {
+                    const isToday = isSameDay(day, new Date())
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`chronos-day-col-header ${isToday ? 'is-today' : ''}`}
+                      >
+                        <span className="col-header-weekday">
+                          {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                        </span>
+                        <span className="col-header-number">{day.getDate()}</span>
+                      </div>
+                    )
+                  })}
+                </div>
 
-                        return (
+                {/* Timeline Grid */}
+                <div className={`chronos-timeline-grid ${viewMode === 'day' ? 'day-view' : ''}`}>
+                  {/* Time Gutter */}
+                  <div className="chronos-time-gutter">
+                    {HOURS.map((hour) => (
+                      <div key={hour} className="chronos-hour-label">
+                        {formatHour(hour)}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Day Columns */}
+                  {displayedDays.map((day) => {
+                    const isToday = isSameDay(day, new Date())
+                    const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
+
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className={`chronos-day-column ${isToday ? 'is-today' : ''}`}
+                      >
+                        {/* Current Time Red Line for Today */}
+                        {isToday && (
                           <div
-                            key={hour}
-                            className={`chronos-hour-slot ${isOver ? 'drag-over' : ''}`}
-                            onClick={() => handleSlotClick(day, hour)}
-                            onDragOver={(e) => handleSlotDragOver(e, slotKey)}
-                            onDragLeave={handleSlotDragLeave}
-                            onDrop={(e) => handleSlotDrop(e, day, hour)}
-                            title={`Click to schedule at ${formatHour(hour)}`}
-                          />
-                        )
-                      })}
-
-                      {/* Scheduled Event & Task Cards */}
-                      {dayEvents.map((event) => {
-                        const pos = getEventPosition(event.start_time, event.end_time)
-                        const categoryClass = `cat-${event.category || 'General'}`
-                        const isStandaloneEvent = event.event_type === 'event'
-                        const isDone = isItemCompleted(event)
-                        const isOverdue = !isStandaloneEvent && !isDone && new Date(now).getTime() > new Date(event.end_time).getTime()
-
-                        return (
-                          <div
-                            key={event.id}
-                            className={`chronos-event-card ${categoryClass} ${isStandaloneEvent ? 'type-event' : ''} ${isDone ? 'is-completed' : ''} ${event._morphed ? 'morphed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
+                            className="chronos-current-time-line"
                             style={{
-                              top: pos.top,
-                              height: pos.height
+                              top: `${((new Date().getHours() * 60 + new Date().getMinutes()) / 1440) * 100}%`
                             }}
-                            draggable={!event._isRecurringInstance}
-                            onDragStart={(e) => handleEventDragStart(e, event)}
-                            onClick={(e) => handleEventClick(e, event)}
-                            title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — ${isStandaloneEvent ? 'Event / Milestone' : 'Scheduled Task'}`}
-                          >
-                            <div className="event-card-header">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                {/* Inline Accomplish / Check Button */}
-                                {!isStandaloneEvent && (
+                          />
+                        )}
+
+                        {/* 24 Hour Clickable / Droppable Slots */}
+                        {HOURS.map((hour) => {
+                          const slotKey = `${day.toISOString()}-${hour}`
+                          const isOver = dragOverSlot === slotKey
+
+                          return (
+                            <div
+                              key={hour}
+                              className={`chronos-hour-slot ${isOver ? 'drag-over' : ''}`}
+                              onClick={() => handleSlotClick(day, hour)}
+                              onDragOver={(e) => handleSlotDragOver(e, slotKey)}
+                              onDragLeave={handleSlotDragLeave}
+                              onDrop={(e) => handleSlotDrop(e, day, hour)}
+                              title={`Click to schedule at ${formatHour(hour)}`}
+                            />
+                          )
+                        })}
+
+                        {/* Scheduled Task Cards */}
+                        {dayEvents.map((event) => {
+                          const pos = getEventPosition(event.start_time, event.end_time)
+                          const categoryClass = `cat-${event.category || 'General'}`
+                          const isDone = isItemCompleted(event)
+
+                          return (
+                            <div
+                              key={event.id}
+                              className={`chronos-event-card ${categoryClass} ${isDone ? 'is-completed' : ''} ${event._morphed ? 'morphed' : ''}`}
+                              style={{
+                                top: pos.top,
+                                height: pos.height
+                              }}
+                              draggable
+                              onDragStart={(e) => handleEventDragStart(e, event)}
+                              onClick={(e) => handleEventClick(e, event)}
+                              title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — Drag to reschedule or drag to sidebar to unschedule`}
+                            >
+                              <div className="event-card-header">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                  {/* Inline Accomplish / Check Button */}
                                   <button
                                     type="button"
                                     className={`event-check-btn ${isDone ? 'completed' : ''}`}
@@ -1031,102 +1014,65 @@ export default function ChronosCalendar({
                                   >
                                     {isDone ? '✓' : ''}
                                   </button>
-                                )}
-                                <span className="event-card-time">
-                                  {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
+                                  <span className="event-card-time">
+                                    {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+                                  {isDone && (
+                                    <span className="event-completed-badge">✓ DONE</span>
+                                  )}
+                                  {!isDone && event.auto_morph && (
+                                    <span className="event-morph-badge" title="Auto-Morph Active">
+                                      ⚡
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="event-card-title">{event.title}</div>
+
+                              <div className="event-card-footer">
+                                <span>{event.category || 'General'}</span>
+                                <span className="event-card-badge">
+                                  {isDone ? 'COMPLETED' : event.priority || 'MED'}
                                 </span>
                               </div>
 
-                              <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-                                {isDone && (
-                                  <span className="event-completed-badge">✓ DONE</span>
-                                )}
-                                {isStandaloneEvent && (
-                                  <span className="event-type-badge">📅 EVENT</span>
-                                )}
-                                {isOverdue && (
-                                  <span className="event-overdue-badge">⚠️ OVERDUE</span>
-                                )}
-                                {!isStandaloneEvent && !isDone && event.auto_morph && (
-                                  <span className="event-morph-badge" title="Auto-Morph Active">
-                                    ⚡
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="event-card-title">{event.title}</div>
-
-                            <div className="event-card-footer">
-                              <span>{event.category || 'General'}</span>
-                              <span className="event-card-badge">
-                                {isStandaloneEvent ? 'AGENDA' : isDone ? 'COMPLETED' : event.priority || 'MED'}
-                              </span>
-                            </div>
-
-                            {/* Bottom Edge Resize Handle */}
-                            {!event._isRecurringInstance && (
+                              {/* Bottom Edge Resize Handle */}
                               <div
                                 className="event-resize-handle"
                                 onMouseDown={(e) => handleResizeStart(e, event)}
                                 title="Drag bottom edge to adjust duration"
                               />
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </>
-          )}
+            )}
+          </div>
+
+          {/* Mini Floating Zoom Reset Pill (Ctrl + Wheel hint) */}
+          <aside className="chronos-zoom-controls" aria-label="Canvas Zoom Controls">
+            <span className="chronos-zoom-label">{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              className="chronos-zoom-btn"
+              onClick={handleResetZoom}
+              title="Reset Zoom & Pan (100%)"
+            >
+              Reset
+            </button>
+          </aside>
         </div>
       </div>
 
-      {/* Actionable Overdue Alert Banner (Strictly for uncompleted tasks) */}
-      {topOverdueEvent && (
-        <aside className="chronos-overdue-banner" role="alert">
-          <div className="overdue-banner-left">
-            <span>⚠️</span>
-            <span>
-              Deadline passed for <strong className="overdue-banner-title">{topOverdueEvent.title}</strong>
-            </span>
-          </div>
-
-          <div className="overdue-banner-actions">
-            <button
-              type="button"
-              className="btn-overdue-complete"
-              onClick={() => handleToggleEventComplete(topOverdueEvent)}
-              title="Accomplish task now"
-            >
-              ✓ Complete Task
-            </button>
-            <button
-              type="button"
-              className="btn-overdue-extend"
-              onClick={() => handleExtendEventDeadline(topOverdueEvent, 30)}
-              title="Extend deadline by 30 minutes"
-            >
-              +30m Extend
-            </button>
-            <button
-              type="button"
-              className="btn-overdue-dismiss"
-              onClick={() =>
-                setDismissedOverdueIds((prev) => new Set([...prev, topOverdueEvent.id]))
-              }
-              title="Dismiss alert"
-              aria-label="Dismiss alert"
-            >
-              ✕
-            </button>
-          </div>
-        </aside>
-      )}
-
-      {/* Modern Floating Modal (Glassmorphic Backdrop) */}
+      {/* Modern Floating Modal (Schedule Task) */}
       {modalState.isOpen && (
         <div
           className="chronos-modal-overlay"
@@ -1134,7 +1080,7 @@ export default function ChronosCalendar({
         >
           <div className="chronos-modal" onClick={(e) => e.stopPropagation()}>
             <div className="chronos-modal-header">
-              <span>{modalState.mode === 'create' ? 'Schedule Item' : 'Edit Schedule Item'}</span>
+              <span>{modalState.mode === 'create' ? 'Schedule Task' : 'Edit Scheduled Task'}</span>
               <button
                 type="button"
                 className="toast-close-btn"
@@ -1152,41 +1098,8 @@ export default function ChronosCalendar({
               }}
               className="chronos-modal-form"
             >
-              {/* Type Switcher: Task vs Standalone Event */}
               <div className="chronos-form-row">
-                <label>Item Type</label>
-                <div className="chronos-view-switch" style={{ width: '100%', display: 'flex' }}>
-                  <button
-                    type="button"
-                    style={{ flex: 1 }}
-                    className={`chronos-view-btn ${modalState.eventData?.event_type !== 'event' ? 'active' : ''}`}
-                    onClick={() =>
-                      setModalState((prev) => ({
-                        ...prev,
-                        eventData: { ...prev.eventData, event_type: 'task' }
-                      }))
-                    }
-                  >
-                    📋 Task
-                  </button>
-                  <button
-                    type="button"
-                    style={{ flex: 1 }}
-                    className={`chronos-view-btn ${modalState.eventData?.event_type === 'event' ? 'active' : ''}`}
-                    onClick={() =>
-                      setModalState((prev) => ({
-                        ...prev,
-                        eventData: { ...prev.eventData, event_type: 'event', auto_morph: false }
-                      }))
-                    }
-                  >
-                    📅 Standalone Event
-                  </button>
-                </div>
-              </div>
-
-              <div className="chronos-form-row">
-                <label>Title</label>
+                <label>Task Title</label>
                 <input
                   type="text"
                   className="chronos-input"
@@ -1198,29 +1111,8 @@ export default function ChronosCalendar({
                       eventData: { ...prev.eventData, title: e.target.value }
                     }))
                   }
-                  placeholder={modalState.eventData?.event_type === 'event' ? 'e.g. Sprint Planning, Team Sync...' : 'Task title or deliverable...'}
+                  placeholder="Task title or deliverable..."
                 />
-              </div>
-
-              {/* Optional Recurrence */}
-              <div className="chronos-form-row">
-                <label>Recurrence / Repeat</label>
-                <select
-                  className="chronos-input"
-                  value={modalState.eventData?.recurrence || 'none'}
-                  onChange={(e) =>
-                    setModalState((prev) => ({
-                      ...prev,
-                      eventData: { ...prev.eventData, recurrence: e.target.value }
-                    }))
-                  }
-                >
-                  {RECURRENCE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <div className="chronos-time-inputs">
@@ -1323,24 +1215,22 @@ export default function ChronosCalendar({
                 </div>
               </div>
 
-              {modalState.eventData?.event_type !== 'event' && (
-                <div className="chronos-form-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                  <input
-                    type="checkbox"
-                    id="auto_morph_checkbox"
-                    checked={Boolean(modalState.eventData?.auto_morph)}
-                    onChange={(e) =>
-                      setModalState((prev) => ({
-                        ...prev,
-                        eventData: { ...prev.eventData, auto_morph: e.target.checked }
-                      }))
-                    }
-                  />
-                  <label htmlFor="auto_morph_checkbox" style={{ textTransform: 'none', cursor: 'pointer', fontSize: '11.5px', color: '#e4e4e7' }}>
-                    Enable Velocity Auto-Morph (Auto-ripple on schedule drift)
-                  </label>
-                </div>
-              )}
+              <div className="chronos-form-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                <input
+                  type="checkbox"
+                  id="auto_morph_checkbox"
+                  checked={Boolean(modalState.eventData?.auto_morph)}
+                  onChange={(e) =>
+                    setModalState((prev) => ({
+                      ...prev,
+                      eventData: { ...prev.eventData, auto_morph: e.target.checked }
+                    }))
+                  }
+                />
+                <label htmlFor="auto_morph_checkbox" style={{ textTransform: 'none', cursor: 'pointer', fontSize: '11.5px', color: '#e4e4e7' }}>
+                  Enable Velocity Auto-Morph (Auto-ripple on schedule drift)
+                </label>
+              </div>
 
               <div className="chronos-modal-actions">
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -1369,7 +1259,7 @@ export default function ChronosCalendar({
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {modalState.mode === 'edit' && modalState.eventData?.event_type !== 'event' && (
+                  {modalState.mode === 'edit' && (
                     <button
                       type="button"
                       className={`btn-chronos-toggle-complete ${isItemCompleted(modalState.eventData) ? 'is-done' : ''}`}
