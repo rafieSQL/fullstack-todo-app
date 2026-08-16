@@ -1164,7 +1164,17 @@ export default function App() {
           setIsPartnerProcessing(false)
           sfx.playDeactivate()
           setIsPartnerTextPromptOpen(true)
-          showToast(`Partner Voice: ${err.message || 'Ketik perintah Anda di bawah'}.`, 'info')
+
+          if (
+            err.name === 'NetworkError' ||
+            err.message?.includes('network') ||
+            err.message?.includes('Gangguan koneksi')
+          ) {
+            showToast('⚠️ Gangguan koneksi suara ke browser. Silakan ketik perintah secara manual.', 'warning')
+          } else {
+            showToast(`Partner Voice: ${err.message || 'Ketik perintah Anda di bawah'}.`, 'info')
+          }
+
           setInterimVoiceText('Ketik perintah Anda pada kotak Partner...')
         }
       })

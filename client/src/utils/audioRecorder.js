@@ -186,10 +186,17 @@ export function startVoiceListening({
       }
 
       recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error)
+        console.warn('Speech recognition error:', event.error)
         if (silenceTimer) clearTimeout(silenceTimer)
         if (maxDurationTimer) clearTimeout(maxDurationTimer)
-        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+
+        if (event.error === 'network') {
+          const netErr = new Error(
+            'Gangguan koneksi suara ke browser. Silakan ketik perintah secara manual.'
+          )
+          netErr.name = 'NetworkError'
+          onError?.(netErr)
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           onError?.(new Error(`Voice error: ${event.error}`))
         }
       }
