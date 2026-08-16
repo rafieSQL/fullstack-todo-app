@@ -41,12 +41,6 @@ export default function ChronosCalendar({
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [isSidebarDragOver, setIsSidebarDragOver] = useState(false)
 
-  // Zoom and Pan Canvas State
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [isPanning, setIsPanning] = useState(false)
-  const panStartRef = useRef({ startX: 0, startY: 0, panX: 0, panY: 0 })
-
   // Drag-and-drop state
   const [draggedTask, setDraggedTask] = useState(null)
   const [draggedEvent, setDraggedEvent] = useState(null)
@@ -574,52 +568,10 @@ export default function ChronosCalendar({
     }
   }, [resizingEvent, handleResizeMove, handleResizeEnd])
 
-  // Interactive Zoom & Pan Listeners
-  const handleWheel = (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault()
-      const delta = e.deltaY * -0.0015
-      setZoom((prev) => Math.min(1.4, Math.max(0.65, Number((prev + delta).toFixed(2)))))
-    }
-  }
-
-  const handleCanvasMouseDown = (e) => {
-    // Only pan if clicking empty background or holding middle mouse
-    if (e.button === 1 || e.target.classList.contains('chronos-canvas-viewport') || e.target.classList.contains('chronos-month-container') || e.target.classList.contains('chronos-grid-wrapper')) {
-      setIsPanning(true)
-      panStartRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        panX: pan.x,
-        panY: pan.y
-      }
-    }
-  }
-
-  const handleCanvasMouseMove = (e) => {
-    if (!isPanning) return
-    const dx = e.clientX - panStartRef.current.startX
-    const dy = e.clientY - panStartRef.current.startY
-    setPan({
-      x: panStartRef.current.panX + dx,
-      y: panStartRef.current.panY + dy
-    })
-  }
-
-  const handleCanvasMouseUp = () => {
-    if (isPanning) setIsPanning(false)
-  }
-
-  const handleResetZoom = () => {
-    setZoom(1)
-    setPan({ x: 0, y: 0 })
-  }
-
   // Open Event Details / Edit Modal
   const handleEventClick = (e, event) => {
     e.stopPropagation()
     const original = events.find((item) => item.id === event.id) || event
-
     setModalState({
       isOpen: true,
       mode: 'edit',
@@ -776,7 +728,7 @@ export default function ChronosCalendar({
         </div>
       </header>
 
-      {/* Main Body (Sidebar + Canvas) */}
+      {/* Main Body (Sidebar + Viewports) */}
       <div className="chronos-body">
         {/* Unassigned Task Backlog Sidebar (Accepts drops to unschedule) */}
         <aside
@@ -846,230 +798,199 @@ export default function ChronosCalendar({
           )}
         </aside>
 
-        {/* Interactive Zoomable & Pannable Canvas Viewport */}
-        <div
-          className={`chronos-canvas-viewport ${isPanning ? 'is-panning' : ''}`}
-          onWheel={handleWheel}
-          onMouseDown={handleCanvasMouseDown}
-          onMouseMove={handleCanvasMouseMove}
-          onMouseUp={handleCanvasMouseUp}
-        >
-          {/* Canvas Transform Container */}
-          <div
-            className="chronos-canvas-transform"
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              transformOrigin: '0 0'
-            }}
-          >
-            {viewMode === 'month' ? (
-              /* Strict 7-Column Month Matrix View */
-              <div className="chronos-month-container">
-                <div className="chronos-month-header-row">
-                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-                    <div key={day} className="chronos-month-header-cell">
-                      {day}
-                    </div>
-                  ))}
+        {viewMode === 'month' ? (
+          /* Standard High-Performance 7-Column Month Grid (Notion / Google Calendar) */
+          <div className="chronos-month-container">
+            <div className="chronos-month-header-row">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                <div key={day} className="chronos-month-header-cell">
+                  {day}
                 </div>
+              ))}
+            </div>
 
-                <div className="chronos-month-grid">
-                  {monthDays.map((day) => {
-                    const isToday = isSameDay(day, new Date())
-                    const isOtherMonth = day.getMonth() !== currentDate.getMonth()
-                    const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
+            <div className="chronos-month-grid">
+              {monthDays.map((day) => {
+                const isToday = isSameDay(day, new Date())
+                const isOtherMonth = day.getMonth() !== currentDate.getMonth()
+                const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
 
-                    return (
-                      <div
-                        key={day.toISOString()}
-                        className={`chronos-month-cell ${isOtherMonth ? 'is-other-month' : ''} ${isToday ? 'is-today' : ''}`}
-                        onClick={() => handleSlotClick(day, 9)}
-                        title={`Click to schedule task on ${day.toLocaleDateString()}`}
-                      >
-                        <span className="month-cell-number">{day.getDate()}</span>
-                        {dayEvents.slice(0, 3).map((ev) => {
-                          const isDone = isItemCompleted(ev)
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`chronos-month-cell ${isOtherMonth ? 'is-other-month' : ''} ${isToday ? 'is-today' : ''}`}
+                    onClick={() => handleSlotClick(day, 9)}
+                    title={`Click to schedule task on ${day.toLocaleDateString()}`}
+                  >
+                    <span className="month-cell-number">{day.getDate()}</span>
+                    {dayEvents.slice(0, 4).map((ev) => {
+                      const isDone = isItemCompleted(ev)
 
-                          return (
-                            <div
-                              key={ev.id}
-                              className={`month-event-pill ${isDone ? 'is-completed' : ''}`}
-                              onClick={(e) => handleEventClick(e, ev)}
-                              title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
-                            >
-                              {isDone ? '✓ ' : ''}
-                              {ev.title}
-                            </div>
-                          )
-                        })}
-                        {dayEvents.length > 3 && (
-                          <span style={{ fontSize: '9px', color: '#71717a', fontWeight: 'bold' }}>
-                            +{dayEvents.length - 3} more
-                          </span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : (
-              /* Week & Day Timeline View */
-              <div className="chronos-grid-wrapper">
-                {/* Days Header Row */}
-                <div className={`chronos-days-header-row ${viewMode === 'day' ? 'day-view' : ''}`}>
-                  <div className="chronos-time-gutter-header">GMT</div>
-                  {displayedDays.map((day) => {
-                    const isToday = isSameDay(day, new Date())
-                    return (
-                      <div
-                        key={day.toISOString()}
-                        className={`chronos-day-col-header ${isToday ? 'is-today' : ''}`}
-                      >
-                        <span className="col-header-weekday">
-                          {day.toLocaleDateString('en-US', { weekday: 'short' })}
-                        </span>
-                        <span className="col-header-number">{day.getDate()}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Timeline Grid */}
-                <div className={`chronos-timeline-grid ${viewMode === 'day' ? 'day-view' : ''}`}>
-                  {/* Time Gutter */}
-                  <div className="chronos-time-gutter">
-                    {HOURS.map((hour) => (
-                      <div key={hour} className="chronos-hour-label">
-                        {formatHour(hour)}
-                      </div>
-                    ))}
+                      return (
+                        <div
+                          key={ev.id}
+                          className={`month-event-pill ${isDone ? 'is-completed' : ''}`}
+                          onClick={(e) => handleEventClick(e, ev)}
+                          title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
+                        >
+                          {isDone ? '✓ ' : ''}
+                          {ev.title}
+                        </div>
+                      )
+                    })}
+                    {dayEvents.length > 4 && (
+                      <span style={{ fontSize: '9px', color: '#71717a', fontWeight: 'bold' }}>
+                        +{dayEvents.length - 4} more
+                      </span>
+                    )}
                   </div>
-
-                  {/* Day Columns */}
-                  {displayedDays.map((day) => {
-                    const isToday = isSameDay(day, new Date())
-                    const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
-
-                    return (
-                      <div
-                        key={day.toISOString()}
-                        className={`chronos-day-column ${isToday ? 'is-today' : ''}`}
-                      >
-                        {/* Current Time Red Line for Today */}
-                        {isToday && (
-                          <div
-                            className="chronos-current-time-line"
-                            style={{
-                              top: `${((new Date().getHours() * 60 + new Date().getMinutes()) / 1440) * 100}%`
-                            }}
-                          />
-                        )}
-
-                        {/* 24 Hour Clickable / Droppable Slots */}
-                        {HOURS.map((hour) => {
-                          const slotKey = `${day.toISOString()}-${hour}`
-                          const isOver = dragOverSlot === slotKey
-
-                          return (
-                            <div
-                              key={hour}
-                              className={`chronos-hour-slot ${isOver ? 'drag-over' : ''}`}
-                              onClick={() => handleSlotClick(day, hour)}
-                              onDragOver={(e) => handleSlotDragOver(e, slotKey)}
-                              onDragLeave={handleSlotDragLeave}
-                              onDrop={(e) => handleSlotDrop(e, day, hour)}
-                              title={`Click to schedule at ${formatHour(hour)}`}
-                            />
-                          )
-                        })}
-
-                        {/* Scheduled Task Cards */}
-                        {dayEvents.map((event) => {
-                          const pos = getEventPosition(event.start_time, event.end_time)
-                          const categoryClass = `cat-${event.category || 'General'}`
-                          const isDone = isItemCompleted(event)
-
-                          return (
-                            <div
-                              key={event.id}
-                              className={`chronos-event-card ${categoryClass} ${isDone ? 'is-completed' : ''} ${event._morphed ? 'morphed' : ''}`}
-                              style={{
-                                top: pos.top,
-                                height: pos.height
-                              }}
-                              draggable
-                              onDragStart={(e) => handleEventDragStart(e, event)}
-                              onClick={(e) => handleEventClick(e, event)}
-                              title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — Drag to reschedule or drag to sidebar to unschedule`}
-                            >
-                              <div className="event-card-header">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                  {/* Inline Accomplish / Check Button */}
-                                  <button
-                                    type="button"
-                                    className={`event-check-btn ${isDone ? 'completed' : ''}`}
-                                    onClick={(e) => handleToggleEventComplete(event, e)}
-                                    title={isDone ? 'Mark Incomplete' : 'Mark Accomplished'}
-                                    aria-label={isDone ? 'Mark Incomplete' : 'Mark Accomplished'}
-                                  >
-                                    {isDone ? '✓' : ''}
-                                  </button>
-                                  <span className="event-card-time">
-                                    {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
-                                  </span>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-                                  {isDone && (
-                                    <span className="event-completed-badge">✓ DONE</span>
-                                  )}
-                                  {!isDone && event.auto_morph && (
-                                    <span className="event-morph-badge" title="Auto-Morph Active">
-                                      ⚡
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="event-card-title">{event.title}</div>
-
-                              <div className="event-card-footer">
-                                <span>{event.category || 'General'}</span>
-                                <span className="event-card-badge">
-                                  {isDone ? 'COMPLETED' : event.priority || 'MED'}
-                                </span>
-                              </div>
-
-                              {/* Bottom Edge Resize Handle */}
-                              <div
-                                className="event-resize-handle"
-                                onMouseDown={(e) => handleResizeStart(e, event)}
-                                title="Drag bottom edge to adjust duration"
-                              />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+                )
+              })}
+            </div>
           </div>
+        ) : (
+          /* Week & Day Timeline View (Natural Vertical Scroll) */
+          <div className="chronos-grid-wrapper">
+            {/* Days Header Row */}
+            <div className={`chronos-days-header-row ${viewMode === 'day' ? 'day-view' : ''}`}>
+              <div className="chronos-time-gutter-header">GMT</div>
+              {displayedDays.map((day) => {
+                const isToday = isSameDay(day, new Date())
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`chronos-day-col-header ${isToday ? 'is-today' : ''}`}
+                  >
+                    <span className="col-header-weekday">
+                      {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
+                    <span className="col-header-number">{day.getDate()}</span>
+                  </div>
+                )
+              })}
+            </div>
 
-          {/* Mini Floating Zoom Reset Pill (Ctrl + Wheel hint) */}
-          <aside className="chronos-zoom-controls" aria-label="Canvas Zoom Controls">
-            <span className="chronos-zoom-label">{Math.round(zoom * 100)}%</span>
-            <button
-              type="button"
-              className="chronos-zoom-btn"
-              onClick={handleResetZoom}
-              title="Reset Zoom & Pan (100%)"
-            >
-              Reset
-            </button>
-          </aside>
-        </div>
+            {/* Timeline Grid */}
+            <div className={`chronos-timeline-grid ${viewMode === 'day' ? 'day-view' : ''}`}>
+              {/* Time Gutter */}
+              <div className="chronos-time-gutter">
+                {HOURS.map((hour) => (
+                  <div key={hour} className="chronos-hour-label">
+                    {formatHour(hour)}
+                  </div>
+                ))}
+              </div>
+
+              {/* Day Columns */}
+              {displayedDays.map((day) => {
+                const isToday = isSameDay(day, new Date())
+                const dayEvents = events.filter((e) => isSameDay(e.start_time, day))
+
+                return (
+                  <div
+                    key={day.toISOString()}
+                    className={`chronos-day-column ${isToday ? 'is-today' : ''}`}
+                  >
+                    {/* Current Time Red Line for Today */}
+                    {isToday && (
+                      <div
+                        className="chronos-current-time-line"
+                        style={{
+                          top: `${((new Date().getHours() * 60 + new Date().getMinutes()) / 1440) * 100}%`
+                        }}
+                      />
+                    )}
+
+                    {/* 24 Hour Clickable / Droppable Slots */}
+                    {HOURS.map((hour) => {
+                      const slotKey = `${day.toISOString()}-${hour}`
+                      const isOver = dragOverSlot === slotKey
+
+                      return (
+                        <div
+                          key={hour}
+                          className={`chronos-hour-slot ${isOver ? 'drag-over' : ''}`}
+                          onClick={() => handleSlotClick(day, hour)}
+                          onDragOver={(e) => handleSlotDragOver(e, slotKey)}
+                          onDragLeave={handleSlotDragLeave}
+                          onDrop={(e) => handleSlotDrop(e, day, hour)}
+                          title={`Click to schedule at ${formatHour(hour)}`}
+                        />
+                      )
+                    })}
+
+                    {/* Scheduled Task Cards */}
+                    {dayEvents.map((event) => {
+                      const pos = getEventPosition(event.start_time, event.end_time)
+                      const categoryClass = `cat-${event.category || 'General'}`
+                      const isDone = isItemCompleted(event)
+
+                      return (
+                        <div
+                          key={event.id}
+                          className={`chronos-event-card ${categoryClass} ${isDone ? 'is-completed' : ''} ${event._morphed ? 'morphed' : ''}`}
+                          style={{
+                            top: pos.top,
+                            height: pos.height
+                          }}
+                          draggable
+                          onDragStart={(e) => handleEventDragStart(e, event)}
+                          onClick={(e) => handleEventClick(e, event)}
+                          title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — Drag to reschedule or drag to sidebar to unschedule`}
+                        >
+                          <div className="event-card-header">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              {/* Inline Accomplish / Check Button */}
+                              <button
+                                type="button"
+                                className={`event-check-btn ${isDone ? 'completed' : ''}`}
+                                onClick={(e) => handleToggleEventComplete(event, e)}
+                                title={isDone ? 'Mark Incomplete' : 'Mark Accomplished'}
+                                aria-label={isDone ? 'Mark Incomplete' : 'Mark Accomplished'}
+                              >
+                                {isDone ? '✓' : ''}
+                              </button>
+                              <span className="event-card-time">
+                                {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+                              {isDone && (
+                                <span className="event-completed-badge">✓ DONE</span>
+                              )}
+                              {!isDone && event.auto_morph && (
+                                <span className="event-morph-badge" title="Auto-Morph Active">
+                                  ⚡
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="event-card-title">{event.title}</div>
+
+                          <div className="event-card-footer">
+                            <span>{event.category || 'General'}</span>
+                            <span className="event-card-badge">
+                              {isDone ? 'COMPLETED' : event.priority || 'MED'}
+                            </span>
+                          </div>
+
+                          {/* Bottom Edge Resize Handle */}
+                          <div
+                            className="event-resize-handle"
+                            onMouseDown={(e) => handleResizeStart(e, event)}
+                            title="Drag bottom edge to adjust duration"
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modern Floating Modal (Schedule Task) */}

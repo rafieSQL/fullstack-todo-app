@@ -1,6 +1,6 @@
 /* ==========================================================================
    Chronos Calendar & Velocity-Driven Time-Morphing Engine
-   High-End Notion / Linear / Cron Aesthetic & Interactive Zoom Canvas
+   High-End Notion / Linear / Cron Dark Utilitarian Theme
    ========================================================================== */
 
 .chronos-container {
@@ -95,7 +95,7 @@
   letter-spacing: -0.01em;
 }
 
-/* Floating Segmented View Switcher (Week / Day / Month) */
+/* Segmented View Switcher (Week / Day / Month) */
 .chronos-view-switch {
   display: inline-flex;
   background-color: rgba(255, 255, 255, 0.04);
@@ -169,7 +169,7 @@
 }
 
 /* ==========================================================================
-   Main Layout (Sidebar + Calendar Canvas)
+   Main Layout (Sidebar + Calendar Views)
    ========================================================================== */
 
 .chronos-body {
@@ -192,7 +192,7 @@
   flex-direction: column;
   flex-shrink: 0;
   transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 10;
+  z-index: 15;
 }
 
 .chronos-sidebar.collapsed {
@@ -366,75 +366,7 @@
 }
 
 /* ==========================================================================
-   Interactive Zoom & Pan Viewport
-   ========================================================================== */
-
-.chronos-canvas-viewport {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  background-color: #0c0d0e;
-  display: flex;
-  flex-direction: column;
-}
-
-.chronos-canvas-viewport.is-panning {
-  cursor: grabbing !important;
-}
-
-.chronos-canvas-transform {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  transform-origin: center center;
-  transition: transform 0.04s ease-out;
-}
-
-/* Mini Floating Zoom Reset Pill */
-.chronos-zoom-controls {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  z-index: 45;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  background: rgba(18, 19, 22, 0.9);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
-  padding: 3px 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-}
-
-.chronos-zoom-btn {
-  background: transparent;
-  border: none;
-  color: #a1a1aa;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: all 0.12s;
-}
-
-.chronos-zoom-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.chronos-zoom-label {
-  font-family: var(--font-mono, monospace);
-  font-size: 10.5px;
-  color: #f4f4f5;
-  font-weight: 700;
-  padding: 0 4px;
-}
-
-/* ==========================================================================
-   Calendar Grid & Week Canvas
+   Week & Day Timeline View (Scrollable Grid)
    ========================================================================== */
 
 .chronos-grid-wrapper {
@@ -456,7 +388,7 @@
   background-color: #121316;
   position: sticky;
   top: 0;
-  z-index: 15;
+  z-index: 10;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
@@ -587,7 +519,7 @@
   border: 1px dashed #3b82f6;
 }
 
-/* Glowing Current Time Marker (Notion style) */
+/* Glowing Current Time Marker */
 .chronos-current-time-line {
   position: absolute;
   left: 0;
@@ -611,7 +543,7 @@
 }
 
 /* ==========================================================================
-   Modern Event Cards (Notion / Linear Tints)
+   Modern Task Cards (Notion / Linear Tints)
    ========================================================================== */
 
 .chronos-event-card {
@@ -796,36 +728,37 @@
 }
 
 /* ==========================================================================
-   Month Matrix View (Strict 7-Column Grid Layout)
+   Standard High-Performance Month View Grid (Notion / Google Calendar)
    ========================================================================== */
 
 .chronos-month-container {
   display: flex;
   flex-direction: column;
   flex: 1;
-  height: 100%;
   width: 100%;
-  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
   background-color: #0c0d0e;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .chronos-month-header-row {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, 1fr);
   width: 100%;
-  box-sizing: border-box;
   background-color: #121316;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   position: sticky;
   top: 0;
   z-index: 10;
+  box-sizing: border-box;
 }
 
 .chronos-month-header-cell {
-  padding: 8px 4px;
+  padding: 10px 4px;
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -834,29 +767,39 @@
   box-sizing: border-box;
 }
 
+.chronos-month-header-cell:last-child {
+  border-right: none;
+}
+
 .chronos-month-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 1fr;
   width: 100%;
-  box-sizing: border-box;
-  background-color: #0c0d0e;
   flex: 1;
+  min-height: 0;
+  background-color: #0c0d0e;
+  box-sizing: border-box;
 }
 
 .chronos-month-cell {
-  min-height: 100px;
+  min-height: 105px;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  padding: 6px;
+  padding: 8px 6px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   box-sizing: border-box;
   overflow: hidden;
   background-color: #0c0d0e;
   transition: background-color 0.12s;
   cursor: pointer;
+}
+
+.chronos-month-cell:nth-child(7n) {
+  border-right: none;
 }
 
 .chronos-month-cell:hover {
@@ -885,10 +828,10 @@
 }
 
 .month-event-pill {
-  padding: 2px 6px;
-  font-size: 10px;
+  padding: 3px 6px;
+  font-size: 10.5px;
   font-weight: 500;
-  border-radius: 3px;
+  border-radius: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
