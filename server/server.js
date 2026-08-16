@@ -14,9 +14,10 @@ const app = express()
 const PORT = process.env.PORT || 5000
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173'
 
-// Data persistence file path
+// Data persistence file paths
 const DATA_DIR = path.join(__dirname, 'data')
 const DATA_FILE = path.join(DATA_DIR, 'tasks.json')
+const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.json')
 
 // Initial seed tasks
 const INITIAL_TASKS = [
@@ -50,14 +51,17 @@ const INITIAL_TASKS = [
   }
 ]
 
-// In-memory task store initialized from disk or default seed
+// In-memory data stores
 let tasks = []
+let activities = []
 
-function loadTasks() {
+function loadData() {
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true })
     }
+
+    // Load tasks
     if (fs.existsSync(DATA_FILE)) {
       const data = fs.readFileSync(DATA_FILE, 'utf-8')
       tasks = JSON.parse(data)
@@ -65,9 +69,26 @@ function loadTasks() {
       tasks = [...INITIAL_TASKS]
       saveTasks()
     }
+
+    // Load activities
+    if (fs.existsSync(ACTIVITY_FILE)) {
+      const actData = fs.readFileSync(ACTIVITY_FILE, 'utf-8')
+      activities = JSON.parse(actData)
+    } else {
+      activities = [
+        {
+          id: `act-${Date.now()}-1`,
+          type: 'create',
+          message: 'Initialized system with standard engineering backlog tasks',
+          timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString()
+        }
+      ]
+      saveActivities()
+    }
   } catch (err) {
-    console.error('Error loading tasks from disk:', err)
+    console.error('Error loading data from disk:', err)
     tasks = [...INITIAL_TASKS]
+    activities = []
   }
 }
 
@@ -82,16 +103,41 @@ function saveTasks() {
   }
 }
 
-// Initialize task store
-loadTasks()
+function saveActivities() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true })
+    }
+    fs.writeFileSync(ACTIVITY_FILE, JSON.stringify(activities.slice(0, 50), null, 2), 'utf-8')
+  } catch (err) {
+    console.error('Error persisting activities to disk:', err)
+  }
+}
+
+function logActivity(type, message, details = {}) {
+  const newActivity = {
+    id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    type,
+    message,
+    timestamp: new Date().toISOString(),
+    ...details
+  }
+  activities.unshift(newActivity)
+  if (activities.length > 50) {
+    activities = activities.slice(0, 50)
+  }
+  saveActivities()
+  return newActivity
+}
+
+// Initialize data store
+loadData()
 
 // Middleware
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
       if (!origin) return callback(null, true)
-      // Allow localhost dev servers or configured CLIENT_ORIGIN
       if (
         origin === CLIENT_ORIGIN ||
         origin.startsWith('http://localhost:') ||
@@ -118,7 +164,9 @@ app.use((req, res, next) => {
   next()
 })
 
-// Routes
+// ==========================================
+// ROUTES
+// ==========================================
 
 // 1. Health check
 app.get('/api/health', (req, res) => {
@@ -126,29 +174,57 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    totalTasks: tasks.length
+    totalTasks: tasks.length,
+    totalActivities: activities.length
   })
 })
 
-// 2. GET /api/tasks - Fetch all tasks with optional search and filter
+// 2. GET /api/activity - Fetch last 15 activity events
+app.get('/api/activity', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 15
+    res.json(activities.slice(0, limit))
+  } catch (error) {
+    console.error('Failed to get activity log:', error)
+    res.status(500).json({ error: 'Failed to retrieve activity log' })
+  }
+})
+
+// 3. GET /api/tasks - Fetch all tasks with optional search and filter
 app.get('/api/tasks', (req, res) => {
   try {
-    const { status, priority, search } = req.query
+    const { status, priority, search, sort } = req.query
     let filtered = [...tasks]
 
+    // Status filter
     if (status === 'active') {
       filtered = filtered.filter((t) => !t.completed)
     } else if (status === 'completed') {
       filtered = filtered.filter((t) => t.completed)
     }
 
+    // Priority filter
     if (priority && ['low', 'medium', 'high'].includes(priority.toLowerCase())) {
       filtered = filtered.filter((t) => t.priority === priority.toLowerCase())
     }
 
+    // Search query
     if (search && search.trim() !== '') {
       const term = search.trim().toLowerCase()
       filtered = filtered.filter((t) => t.title.toLowerCase().includes(term))
+    }
+
+    // Sorting
+    if (sort === 'oldest') {
+      filtered.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    } else if (sort === 'priority') {
+      const pWeights = { high: 3, medium: 2, low: 1 }
+      filtered.sort((a, b) => (pWeights[b.priority] || 0) - (pWeights[a.priority] || 0))
+    } else if (sort === 'alphabetical') {
+      filtered.sort((a, b) => a.title.localeCompare(b.title))
+    } else {
+      // Default: newest first
+      filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     }
 
     res.json(filtered)
@@ -158,7 +234,7 @@ app.get('/api/tasks', (req, res) => {
   }
 })
 
-// 3. POST /api/tasks - Create a new task
+// 4. POST /api/tasks - Create a new task
 app.post('/api/tasks', (req, res) => {
   try {
     const { title, priority = 'medium' } = req.body
@@ -183,6 +259,10 @@ app.post('/api/tasks', (req, res) => {
     tasks.unshift(newTask)
     saveTasks()
 
+    logActivity('create', `Created task "${newTask.title}" [${newTask.priority.toUpperCase()}]`, {
+      taskId: newTask.id
+    })
+
     res.status(201).json(newTask)
   } catch (error) {
     console.error('Failed to create task:', error)
@@ -190,14 +270,70 @@ app.post('/api/tasks', (req, res) => {
   }
 })
 
-// 4. DELETE /api/tasks/completed - Clear all completed tasks
-// Note: Must be placed BEFORE /api/tasks/:id route
+// 5. PATCH /api/tasks/batch-complete - Batch toggle status for multiple tasks
+// Note: Must be declared BEFORE /api/tasks/:id
+app.patch('/api/tasks/batch-complete', (req, res) => {
+  try {
+    const { taskIds, completed = true } = req.body
+
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ error: 'taskIds must be a non-empty array of task IDs' })
+    }
+
+    let updatedCount = 0
+    const updatedTasks = []
+
+    tasks = tasks.map((task) => {
+      if (taskIds.includes(task.id)) {
+        updatedCount++
+        const updated = {
+          ...task,
+          completed: Boolean(completed),
+          updatedAt: new Date().toISOString()
+        }
+        updatedTasks.push(updated)
+        return updated
+      }
+      return task
+    })
+
+    if (updatedCount > 0) {
+      saveTasks()
+      const statusLabel = completed ? 'completed' : 'active'
+      logActivity(
+        'batch-complete',
+        `Marked ${updatedCount} task${updatedCount === 1 ? '' : 's'} as ${statusLabel}`,
+        { count: updatedCount }
+      )
+    }
+
+    res.json({
+      message: `Updated ${updatedCount} task${updatedCount === 1 ? '' : 's'}`,
+      updatedCount,
+      updatedTasks
+    })
+  } catch (error) {
+    console.error('Failed to batch update tasks:', error)
+    res.status(500).json({ error: 'Failed to batch update tasks' })
+  }
+})
+
+// 6. DELETE /api/tasks/completed - Clear all completed tasks
+// Note: Must be declared BEFORE /api/tasks/:id
 app.delete('/api/tasks/completed', (req, res) => {
   try {
     const beforeCount = tasks.length
     tasks = tasks.filter((t) => !t.completed)
     const removedCount = beforeCount - tasks.length
     saveTasks()
+
+    if (removedCount > 0) {
+      logActivity(
+        'clear-completed',
+        `Purged ${removedCount} completed task${removedCount === 1 ? '' : 's'}`,
+        { count: removedCount }
+      )
+    }
 
     res.json({
       message: `Cleared ${removedCount} completed task${removedCount === 1 ? '' : 's'}`,
@@ -209,7 +345,7 @@ app.delete('/api/tasks/completed', (req, res) => {
   }
 })
 
-// 5. PATCH /api/tasks/:id - Update task (toggle complete, edit title/priority)
+// 7. PATCH /api/tasks/:id - Update task (toggle complete, edit title/priority)
 app.patch('/api/tasks/:id', (req, res) => {
   try {
     const { id } = req.params
@@ -221,22 +357,37 @@ app.patch('/api/tasks/:id', (req, res) => {
     }
 
     const task = tasks[taskIndex]
+    const changes = []
 
-    if (typeof completed === 'boolean') {
+    if (typeof completed === 'boolean' && task.completed !== completed) {
       task.completed = completed
+      changes.push(`marked as ${completed ? 'completed' : 'active'}`)
     }
 
-    if (typeof title === 'string' && title.trim() !== '') {
+    if (typeof title === 'string' && title.trim() !== '' && task.title !== title.trim()) {
+      const oldTitle = task.title
       task.title = title.trim()
+      changes.push(`renamed to "${task.title}" (was "${oldTitle}")`)
     }
 
-    if (priority && ['low', 'medium', 'high'].includes(priority.toLowerCase())) {
+    if (
+      priority &&
+      ['low', 'medium', 'high'].includes(priority.toLowerCase()) &&
+      task.priority !== priority.toLowerCase()
+    ) {
       task.priority = priority.toLowerCase()
+      changes.push(`priority set to ${task.priority.toUpperCase()}`)
     }
 
     task.updatedAt = new Date().toISOString()
     tasks[taskIndex] = task
     saveTasks()
+
+    if (changes.length > 0) {
+      logActivity('update', `Task "${task.title}": ${changes.join(', ')}`, {
+        taskId: task.id
+      })
+    }
 
     res.json(task)
   } catch (error) {
@@ -245,7 +396,7 @@ app.patch('/api/tasks/:id', (req, res) => {
   }
 })
 
-// 6. DELETE /api/tasks/:id - Delete a specific task
+// 8. DELETE /api/tasks/:id - Delete a specific task
 app.delete('/api/tasks/:id', (req, res) => {
   try {
     const { id } = req.params
@@ -257,6 +408,10 @@ app.delete('/api/tasks/:id', (req, res) => {
 
     const [deletedTask] = tasks.splice(taskIndex, 1)
     saveTasks()
+
+    logActivity('delete', `Deleted task "${deletedTask.title}"`, {
+      taskId: deletedTask.id
+    })
 
     res.json({
       message: 'Task deleted successfully',
@@ -285,6 +440,6 @@ app.listen(PORT, () => {
   console.log(` Utilitarian Task REST API Server active`)
   console.log(` URL: http://localhost:${PORT}`)
   console.log(` CORS Allowed: ${CLIENT_ORIGIN}`)
-  console.log(` Initialized with ${tasks.length} tasks`)
+  console.log(` Initialized with ${tasks.length} tasks and ${activities.length} activities`)
   console.log(`========================================`)
 })

@@ -56,19 +56,22 @@ async function request(endpoint, options = {}) {
 }
 
 /**
- * Fetch all tasks with optional filters
- * @param {Object} [filters] - { status?: 'all'|'active'|'completed', priority?: 'low'|'medium'|'high', search?: string }
+ * Fetch all tasks with optional filters and sorting
+ * @param {Object} [filters] - { status?: 'all'|'active'|'completed', priority?: 'low'|'medium'|'high', search?: string, sort?: string }
  */
 export async function getTasks(filters = {}) {
   const queryParams = new URLSearchParams()
   if (filters.status && filters.status !== 'all') {
     queryParams.set('status', filters.status)
   }
-  if (filters.priority) {
+  if (filters.priority && filters.priority !== 'all') {
     queryParams.set('priority', filters.priority)
   }
   if (filters.search && filters.search.trim() !== '') {
     queryParams.set('search', filters.search.trim())
+  }
+  if (filters.sort) {
+    queryParams.set('sort', filters.sort)
   }
 
   const queryStr = queryParams.toString()
@@ -100,6 +103,18 @@ export async function updateTask(id, updates) {
 }
 
 /**
+ * Batch update completion status for multiple tasks
+ * @param {string[]} taskIds
+ * @param {boolean} completed
+ */
+export async function batchCompleteTasks(taskIds, completed = true) {
+  return await request('/tasks/batch-complete', {
+    method: 'PATCH',
+    body: JSON.stringify({ taskIds, completed })
+  })
+}
+
+/**
  * Delete a specific task
  * @param {string} id
  */
@@ -116,6 +131,14 @@ export async function clearCompletedTasks() {
   return await request('/tasks/completed', {
     method: 'DELETE'
   })
+}
+
+/**
+ * Fetch recent activity events
+ * @param {number} [limit=15]
+ */
+export async function getActivityLog(limit = 15) {
+  return await request(`/activity?limit=${limit}`, { method: 'GET' })
 }
 
 /**
