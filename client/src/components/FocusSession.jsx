@@ -99,7 +99,7 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
     }
   }, [isDraggingCenter, handleCenterMouseMove, handleCenterMouseUp])
 
-  // Handle Quick Task Submission
+  // Handle Quick Task Submission (Never overwrites current session goal!)
   const handleQuickTaskSubmit = async (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -109,15 +109,11 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
     setIsAddingTask(true)
     try {
       if (onQuickAddTask) {
-        const created = await onQuickAddTask({
+        await onQuickAddTask({
           title: validation.sanitized,
           category: quickCategory,
           priority: quickPriority
         })
-        if (created) {
-          setActiveTask(created)
-          setSessionGoal(created.title)
-        }
       }
       setQuickTitle('')
     } catch (err) {
@@ -127,7 +123,7 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
     }
   }
 
-  // Select Task as active focus goal
+  // Explicitly select a task to target it as focus goal
   const handleSelectGoalTask = (task, e) => {
     if (e) e.stopPropagation()
     setActiveTask(task)
@@ -380,7 +376,7 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
           </button>
         </div>
 
-        {/* Zen Focus Backlog List (Shows all pending tasks) */}
+        {/* Zen Focus Backlog List (Bounded scrollable container) */}
         <div className="focus-backlog-container" onClick={(e) => e.stopPropagation()}>
           <div className="focus-backlog-header">
             <span>Focus Backlog ({pendingTasks.length} pending)</span>
@@ -447,7 +443,7 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
           </div>
         </div>
 
-        {/* Upgraded In-Session Quick Task Creation Card */}
+        {/* In-Session Quick Task Creation Card */}
         <form onSubmit={handleQuickTaskSubmit} className="focus-quick-task-card" onClick={(e) => e.stopPropagation()}>
           <div className="quick-task-input-row">
             <input

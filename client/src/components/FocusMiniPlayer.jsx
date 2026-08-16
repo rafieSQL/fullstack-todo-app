@@ -31,7 +31,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
   // Draggable position state
   const [position, setPosition] = useState(() => ({
     x: Math.max(20, (typeof window !== 'undefined' ? window.innerWidth : 1000) - 370),
-    y: Math.max(20, (typeof window !== 'undefined' ? window.innerHeight : 800) - 320)
+    y: Math.max(20, (typeof window !== 'undefined' ? window.innerHeight : 800) - 340)
   }))
 
   const [isDragging, setIsDragging] = useState(false)
@@ -43,7 +43,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const playerRef = useRef(null)
 
-  // Active Pending Tasks (Top 3–4 items)
+  // Active Pending Tasks (Top 4 items)
   const activePendingTasks = useMemo(() => {
     return (tasks || []).filter((t) => !t.completed).slice(0, 4)
   }, [tasks])
@@ -52,8 +52,8 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
   useEffect(() => {
     const handleResize = () => {
       setPosition((prev) => ({
-        x: Math.min(prev.x, window.innerWidth - 360),
-        y: Math.min(prev.y, window.innerHeight - 300)
+        x: Math.min(prev.x, window.innerWidth - 300),
+        y: Math.min(prev.y, window.innerHeight - 240)
       }))
     }
     window.addEventListener('resize', handleResize)
@@ -62,7 +62,12 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
 
   // Drag start handler (only triggers on the header drag handle)
   const handleMouseDown = (e) => {
-    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.mini-tasks-container') || e.target.closest('.mini-quick-add-form')) {
+    if (
+      e.target.closest('button') ||
+      e.target.closest('input') ||
+      e.target.closest('.mini-tasks-container') ||
+      e.target.closest('.mini-quick-add-form')
+    ) {
       return
     }
 
@@ -81,8 +86,8 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
       const newX = e.clientX - dragOffsetRef.current.x
       const newY = e.clientY - dragOffsetRef.current.y
 
-      const clampedX = Math.max(10, Math.min(newX, window.innerWidth - 360))
-      const clampedY = Math.max(10, Math.min(newY, window.innerHeight - 300))
+      const clampedX = Math.max(10, Math.min(newX, window.innerWidth - 290))
+      const clampedY = Math.max(10, Math.min(newY, window.innerHeight - 230))
 
       setPosition({ x: clampedX, y: clampedY })
     },
@@ -107,7 +112,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
-  // Quick Task Add Handler
+  // Quick Task Add Handler (Never overwrites current session goal!)
   const handleQuickSubmit = async (e) => {
     e.preventDefault()
     e.stopPropagation()
@@ -117,15 +122,11 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
     setIsAdding(true)
     try {
       if (onQuickAddTask) {
-        const created = await onQuickAddTask({
+        await onQuickAddTask({
           title: validation.sanitized,
           category: quickCategory,
           priority: quickPriority
         })
-        if (created) {
-          setActiveTask(created)
-          setSessionGoal(created.title)
-        }
       }
       setQuickTitle('')
     } catch (err) {
@@ -158,7 +159,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
       <div
         className="mini-player-header"
         onMouseDown={handleMouseDown}
-        title="Click and drag to reposition"
+        title="Click and drag to reposition widget"
       >
         <div className="mini-header-left">
           <span className="mini-drag-dots" aria-hidden="true">⋮⋮</span>
@@ -210,7 +211,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
           <div className="mini-timer-digits">
             {formatFocusTime(timeLeft)}
           </div>
-          <div className="mini-goal-title" title={sessionGoal || activeTask?.title || 'Deep Work'}>
+          <div className="mini-goal-title" title={sessionGoal || activeTask?.title || 'Deep Work Session'}>
             {sessionGoal || activeTask?.title || 'Deep Work Session'}
           </div>
         </div>
@@ -240,7 +241,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
         </div>
       </div>
 
-      {/* Active Tasks Sub-List (3–4 Pending Tasks) */}
+      {/* Active Tasks Sub-List (Scrollable Flex Container) */}
       <div className="mini-tasks-container">
         <div className="mini-tasks-header">
           <span>Active Backlog</span>
@@ -358,6 +359,9 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
             ))}
           </div>
         </div>
+
+        {/* Resize Grip Corner Affordance */}
+        <span className="mini-resize-grip" aria-hidden="true" />
       </form>
     </div>
   )
