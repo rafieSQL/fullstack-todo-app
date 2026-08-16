@@ -399,7 +399,6 @@ export default function App() {
         setTasks((prev) =>
           prev.map((t) => (t.id === tempId ? { ...createdTask, is_optimistic: false } : t))
         )
-        loadActivities()
         return createdTask
       } catch (err) {
         console.error('Failed to create task:', err)
@@ -408,7 +407,7 @@ export default function App() {
         throw err
       }
     },
-    [session, showToast, loadActivities]
+    [session, showToast]
   )
 
   // Add Task with AI multi-task decomposition & mandatory deadline inference
@@ -557,7 +556,6 @@ export default function App() {
       try {
         await api.updateTask(task.id, { completed: nextCompleted }, session?.user?.id)
         showToast(nextCompleted ? `Marked "${task.title}" complete` : `Marked "${task.title}" active`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to update task:', err)
         setTasks((prev) =>
@@ -574,7 +572,7 @@ export default function App() {
         }, 400)
       }
     },
-    [tasks, busyTaskIds, session, showToast, loadActivities]
+    [tasks, busyTaskIds, session, showToast]
   )
 
   // Start Inline Edit
@@ -611,7 +609,6 @@ export default function App() {
       try {
         await api.updateTask(task.id, { title: sanitizedTitle }, session?.user?.id)
         showToast(`Renamed task to "${sanitizedTitle}"`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to rename task:', err)
         setTasks((prev) =>
@@ -620,7 +617,7 @@ export default function App() {
         showToast(`Failed to rename task: ${err.message}`, 'error')
       }
     },
-    [editingTaskId, editingTitle, session, showToast, loadActivities]
+    [editingTaskId, editingTitle, session, showToast]
   )
 
   // Delete Task
@@ -640,14 +637,13 @@ export default function App() {
       try {
         await api.deleteTask(task.id, task.title, session?.user?.id)
         showToast(`Deleted "${task.title}"`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to delete task:', err)
         setTasks(previousTasks)
         showToast(`Failed to delete task: ${err.message}`, 'error')
       }
     },
-    [tasks, session, showToast, loadActivities]
+    [tasks, session, showToast]
   )
 
   // Clear Completed Tasks
@@ -662,13 +658,12 @@ export default function App() {
     try {
       const res = await api.clearCompletedTasks(session?.user?.id)
       showToast(res.message || `Purged ${completedTasks.length} completed tasks`)
-      loadActivities()
     } catch (err) {
       console.error('Failed to clear completed tasks:', err)
       setTasks(previousTasks)
       showToast(`Failed to clear completed: ${err.message}`, 'error')
     }
-  }, [tasks, session, showToast, loadActivities])
+  }, [tasks, session, showToast])
 
   // Multi-Selection Toggle
   const handleToggleSelect = useCallback((taskId) => {
@@ -691,14 +686,13 @@ export default function App() {
       try {
         await api.batchCompleteTasks(idsToUpdate, completed, session?.user?.id)
         showToast(`Updated ${idsToUpdate.length} tasks`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to batch update:', err)
         loadTasks(false)
         showToast(`Failed to batch update: ${err.message}`, 'error')
       }
     },
-    [selectedTaskIds, session, showToast, loadActivities, loadTasks]
+    [selectedTaskIds, session, showToast, loadTasks]
   )
 
   // Drag and Drop Handlers
@@ -763,13 +757,12 @@ export default function App() {
         const orderedIds = updatedList.map((t) => t.id)
         await api.reorderTasks(orderedIds, session?.user?.id)
         showToast('Task sequence reordered')
-        loadActivities()
       } catch (err) {
         console.error('Failed to save task order:', err)
         showToast('Failed to save order to database', 'error')
       }
     },
-    [draggedTaskId, dropPosition, tasks, session, showToast, loadActivities]
+    [draggedTaskId, dropPosition, tasks, session, showToast]
   )
 
   const handleDragEnd = useCallback(() => {
@@ -907,7 +900,6 @@ export default function App() {
         })
         setTasks((prev) => prev.map((t) => (t.id === tempId ? created : t)))
         showToast(`Added "${cleanTitle}" to ${category}`)
-        loadActivities()
         return created
       } catch (err) {
         setTasks((prev) => prev.filter((t) => t.id !== tempId))
@@ -915,7 +907,7 @@ export default function App() {
         return null
       }
     },
-    [session, showToast, loadActivities]
+    [session, showToast]
   )
 
   // Centralized Partner Action Executor (Shared by Voice & Typed Fallback)
@@ -999,9 +991,7 @@ export default function App() {
             )
           })
 
-          Promise.all(deletePromises).then(() => {
-            loadActivities()
-          })
+          await Promise.all(deletePromises)
 
           const reply =
             replyMsg ||
