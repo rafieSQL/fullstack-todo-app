@@ -13,6 +13,10 @@ export class ApiError extends Error {
   }
 }
 
+// Columns to fetch for minimal payload transfer
+const TASK_FIELDS = 'id, title, priority, category, completed, "order", created_at, updated_at'
+const ACTIVITY_FIELDS = 'id, type, message, details, created_at'
+
 // In-memory fallback dataset for sandbox/preview mode
 let mockTasks = [
   {
@@ -54,7 +58,7 @@ let mockActivities = [
 ]
 
 /**
- * Fetch all tasks for the active user
+ * Fetch all tasks for the active user with explicit column selection
  */
 export async function getTasks(filters = {}) {
   if (!isSupabaseConfigured) {
@@ -76,7 +80,7 @@ export async function getTasks(filters = {}) {
   }
 
   try {
-    let query = supabase.from('tasks').select('*')
+    let query = supabase.from('tasks').select(TASK_FIELDS)
 
     if (filters.status === 'active') {
       query = query.eq('completed', false)
@@ -160,7 +164,7 @@ export async function createTask({ title, priority = 'medium', category = 'Gener
       payload.user_id = userId
     }
 
-    const { data, error } = await supabase.from('tasks').insert([payload]).select().single()
+    const { data, error } = await supabase.from('tasks').insert([payload]).select(TASK_FIELDS).single()
 
     if (error) throw new ApiError(error.message, 400, error)
 
@@ -203,7 +207,7 @@ export async function updateTask(id, updates) {
       .from('tasks')
       .update({ ...sanitizedUpdates, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select(TASK_FIELDS)
       .single()
 
     if (error) throw new ApiError(error.message, 400, error)
@@ -214,8 +218,11 @@ export async function updateTask(id, updates) {
   }
 }
 
+// Debounce timer reference for persistent reordering
+let reorderDebounceTimer = null
+
 /**
- * Reorder task sequences persistently
+ * Reorder task sequences persistently with a 350ms trailing debounce
  */
 export async function reorderTasks(orderedIds, userId = null) {
   if (!isSupabaseConfigured) {
@@ -231,23 +238,31 @@ export async function reorderTasks(orderedIds, userId = null) {
     return { count: orderedIds.length }
   }
 
-  try {
-    const updatePromises = orderedIds.map((id, index) =>
-      supabase.from('tasks').update({ order: index }).eq('id', id)
-    )
+  return new Promise((resolve, reject) => {
+    if (reorderDebounceTimer) {
+      clearTimeout(reorderDebounceTimer)
+    }
 
-    await Promise.all(updatePromises)
+    reorderDebounceTimer = setTimeout(async () => {
+      try {
+        const updatePromises = orderedIds.map((id, index) =>
+          supabase.from('tasks').update({ order: index }).eq('id', id)
+        )
 
-    await logActivity({
-      type: 'reorder',
-      message: `Reordered task sequence (${orderedIds.length} items)`,
-      userId
-    })
+        await Promise.all(updatePromises)
 
-    return { count: orderedIds.length }
-  } catch (err) {
-    throw new ApiError(err.message || 'Failed to reorder tasks in Supabase', 500, err)
-  }
+        await logActivity({
+          type: 'reorder',
+          message: `Reordered task sequence (${orderedIds.length} items)`,
+          userId
+        })
+
+        resolve({ count: orderedIds.length })
+      } catch (err) {
+        reject(new ApiError(err.message || 'Failed to reorder tasks in Supabase', 500, err))
+      }
+    }, 350)
+  })
 }
 
 /**
@@ -357,7 +372,7 @@ export async function clearCompletedTasks(userId = null) {
 }
 
 /**
- * Fetch recent activity events
+ * Fetch recent activity events with explicit column selection
  */
 export async function getActivityLog(limit = 15) {
   if (!isSupabaseConfigured) {
@@ -367,7 +382,7 @@ export async function getActivityLog(limit = 15) {
   try {
     const { data, error } = await supabase
       .from('activity_logs')
-      .select('*')
+      .select(ACTIVITY_FIELDS)
       .order('created_at', { ascending: false })
       .limit(limit)
 
@@ -397,7 +412,7 @@ export async function logActivity({ type, message, details = {}, userId = null }
       created_at: new Date().toISOString()
     }
     mockActivities.unshift(act)
-    if (mockActivities.length > 50) mockActivities = mockActivities.slice(0, 50)
+    if (mockActivities.length > 30) mockActivities = mockActivities.slice(0, 30)
     return act
   }
 
@@ -405,7 +420,7 @@ export async function logActivity({ type, message, details = {}, userId = null }
     const payload = { type, message: cleanMessage, details }
     if (userId) payload.user_id = userId
 
-    const { data } = await supabase.from('activity_logs').insert([payload]).select().single()
+    const { data } = await supabase.from('activity_logs').insert([payload]).select(ACTIVITY_FIELDS).single()
     return data
   } catch {
     return null

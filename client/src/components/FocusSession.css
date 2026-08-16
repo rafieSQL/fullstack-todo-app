@@ -33,7 +33,7 @@
 /* Header */
 .focus-header {
   width: 100%;
-  max-width: 900px;
+  max-width: 860px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -103,7 +103,6 @@
   gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: -6px;
 }
 
 .duration-label {
@@ -204,7 +203,7 @@
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
   cursor: grab;
-  margin-bottom: -10px;
+  margin-bottom: -8px;
   opacity: 0.7;
   transition: opacity 0.15s;
 }
@@ -367,17 +366,23 @@
   white-space: nowrap;
 }
 
-/* In-Session Quick Task Creation Bar */
-.focus-quick-task-bar {
+/* Upgraded In-Session Quick Task Form */
+.focus-quick-task-card {
   width: 100%;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-subtle);
+}
+
+.quick-task-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .quick-task-input {
@@ -393,20 +398,8 @@
   color: var(--text-muted);
 }
 
-.quick-task-cat-select {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  color: var(--text-secondary);
-  outline: none;
-  cursor: pointer;
-}
-
-.btn-quick-add {
-  padding: 3px 10px;
+.btn-quick-save {
+  padding: 5px 12px;
   font-size: 11px;
   font-weight: 700;
   border-radius: var(--radius-sm);
@@ -415,15 +408,82 @@
   transition: opacity 0.15s;
 }
 
-.btn-quick-add:disabled {
+.btn-quick-save:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* Footer & Ambient Sound / Alarm Settings */
+.quick-task-selectors-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 8px;
+}
+
+.quick-selectors-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.quick-selector-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.quick-chip-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.quick-chip-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.quick-chip-btn.active {
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  border-color: var(--text-primary);
+}
+
+.quick-chip-btn.priority-high.active {
+  background-color: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.quick-chip-btn.priority-medium.active {
+  background-color: #f59e0b;
+  border-color: #f59e0b;
+  color: #000000;
+}
+
+.quick-chip-btn.priority-low.active {
+  background-color: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+
+/* Footer & Ambient Sound / Clock Tick Generator */
 .focus-footer {
   width: 100%;
-  max-width: 900px;
+  max-width: 860px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -503,57 +563,6 @@
   cursor: pointer;
 }
 
-/* Alarm Selector Bar */
-.alarm-selector-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 16px;
-  background-color: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-}
-
-.alarm-select-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.alarm-select {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 3px 8px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  outline: none;
-  cursor: pointer;
-}
-
-.btn-preview-alarm {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-medium);
-  color: var(--text-secondary);
-  transition: all 0.15s;
-}
-
-.btn-preview-alarm:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
-}
-
 /* Ticking Toggle Chip */
 .btn-tick-toggle {
   display: inline-flex;
@@ -599,10 +608,9 @@
 .focus-mini-player {
   position: fixed;
   z-index: 9990;
-  width: 320px;
-  min-width: 280px;
-  max-width: 480px;
-  min-height: 95px;
+  width: 350px;
+  min-width: 310px;
+  max-width: 460px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-dark);
   border-radius: var(--radius-lg);
@@ -610,7 +618,8 @@
   color: var(--text-primary);
   user-select: none;
   animation: mini-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  resize: both;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -692,13 +701,14 @@
   background-color: var(--status-danger-bg);
 }
 
-/* Mini Player Body */
+/* Mini Player Body (Timer & Active Goal) */
 .mini-player-body {
   padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  background-color: var(--bg-surface);
 }
 
 .mini-body-left {
@@ -708,7 +718,7 @@
 
 .mini-timer-digits {
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1;
@@ -717,8 +727,8 @@
 
 .mini-goal-title {
   font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
+  font-weight: 600;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -751,11 +761,231 @@
   transform: scale(0.95);
 }
 
-/* Mini Quick Task Form */
-.mini-quick-task-row {
-  padding: 6px 12px 10px 12px;
+/* Active Tasks Sub-List in Mini-Player */
+.mini-tasks-container {
   border-top: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+  background-color: var(--bg-subtle);
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.mini-tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px 3px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.mini-task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-light);
+  transition: background-color 0.1s;
+}
+
+.mini-task-item:last-child {
+  border-bottom: none;
+}
+
+.mini-task-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.mini-task-item.is-active-goal {
+  background-color: var(--bg-subtle);
+  border-left: 2px solid var(--accent-primary);
+}
+
+.mini-checkbox-btn {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border-dark);
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.1s;
+  padding: 0;
+}
+
+.mini-checkbox-btn:hover {
+  border-color: var(--text-primary);
+}
+
+.mini-checkbox-btn.checked {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-contrast);
+}
+
+.mini-checkbox-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mini-task-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mini-task-text:hover {
+  text-decoration: underline;
+}
+
+.mini-tag-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.mini-priority-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mini-priority-dot.high {
+  background-color: #ef4444;
+}
+
+.mini-priority-dot.medium {
+  background-color: #f59e0b;
+}
+
+.mini-priority-dot.low {
+  background-color: #10b981;
+}
+
+.mini-empty-state {
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  font-style: italic;
+}
+
+/* In-Widget Quick Task Creator (Mini Bottom Form) */
+.mini-quick-add-form {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background-color: var(--bg-surface);
+}
+
+.mini-quick-input-row {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.mini-quick-input {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 6px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.mini-quick-input::placeholder {
+  color: var(--text-muted);
+}
+
+.btn-mini-quick-submit {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background-color: var(--accent-primary);
+  color: var(--accent-contrast);
+  transition: opacity 0.15s;
+}
+
+.btn-mini-quick-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mini-quick-pills-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.mini-pills-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.btn-mini-pill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  transition: all 0.1s;
+}
+
+.btn-mini-pill:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-mini-pill.active {
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  border-color: var(--text-primary);
+}
+
+.btn-mini-pill.priority-high.active {
+  background-color: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.btn-mini-pill.priority-medium.active {
+  background-color: #f59e0b;
+  border-color: #f59e0b;
+  color: #000000;
+}
+
+.btn-mini-pill.priority-low.active {
+  background-color: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
 }

@@ -89,6 +89,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState(null)
   const [toasts, setToasts] = useState([])
+  const [busyTaskIds, setBusyTaskIds] = useState(new Set())
 
   const taskInputRef = useRef(null)
   const searchInputRef = useRef(null)
@@ -104,10 +105,13 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
   }
 
-  // Toast notification helper
+  // Toast notification helper with max 3 concurrent alerts and deduplication
   const showToast = useCallback((message, type = 'info') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`
-    setToasts((prev) => [...prev, { id, message, type }])
+    setToasts((prev) => {
+      const filtered = prev.filter((t) => t.message !== message)
+      return [...filtered, { id, message, type }].slice(-3)
+    })
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id))
     }, 3000)
@@ -279,7 +283,7 @@ export default function App() {
   }, [editingTaskId, viewMode, handleOpenFocusSession])
 
   // Sign out handler
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     try {
       if (isSupabaseConfigured) {
         await supabase.auth.signOut()
@@ -291,143 +295,166 @@ export default function App() {
       console.error('Sign out error:', err)
       showToast('Failed to sign out', 'error')
     }
-  }
+  }, [showToast])
 
   // Add Task with input sanitization and length validation
-  const handleAddTask = async (e) => {
-    e.preventDefault()
-    const validation = validateTaskTitle(newTaskTitle)
+  const handleAddTask = useCallback(
+    async (e) => {
+      e.preventDefault()
+      const validation = validateTaskTitle(newTaskTitle)
 
-    if (!validation.isValid) {
-      setErrorMessage(validation.error)
-      showToast(validation.error, 'error')
-      return
-    }
+      if (!validation.isValid) {
+        setErrorMessage(validation.error)
+        showToast(validation.error, 'error')
+        return
+      }
 
-    if (isSubmitting) return
+      if (isSubmitting) return
 
-    setIsSubmitting(true)
-    setErrorMessage(null)
+      setIsSubmitting(true)
+      setErrorMessage(null)
 
-    const sanitizedTitle = validation.sanitized
-    const tempId = `temp-${Date.now()}`
-    const optimisticTask = {
-      id: tempId,
-      title: sanitizedTitle,
-      priority: newPriority,
-      category: newCategory,
-      order: 0,
-      completed: false,
-      created_at: new Date().toISOString()
-    }
-
-    setTasks((prev) => [optimisticTask, ...prev])
-    setNewTaskTitle('')
-
-    try {
-      const createdTask = await api.createTask({
+      const sanitizedTitle = validation.sanitized
+      const tempId = `temp-${Date.now()}`
+      const optimisticTask = {
+        id: tempId,
         title: sanitizedTitle,
         priority: newPriority,
         category: newCategory,
-        userId: session?.user?.id
-      })
-      setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
-      showToast(`Created task in ${newCategory}`)
-      loadActivities()
-    } catch (err) {
-      console.error('Failed to create task:', err)
-      setTasks((prev) => prev.filter((t) => t.id !== tempId))
-      setErrorMessage(`Failed to add task: ${err.message}`)
-      showToast(`Error adding task: ${err.message}`, 'error')
-      setNewTaskTitle(sanitizedTitle)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
+        order: 0,
+        completed: false,
+        created_at: new Date().toISOString()
+      }
 
-  // Toggle Task Completion
-  const handleToggleTask = async (task) => {
-    const nextCompleted = !task.completed
+      setTasks((prev) => [optimisticTask, ...prev])
+      setNewTaskTitle('')
 
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, completed: nextCompleted } : t))
-    )
+      try {
+        const createdTask = await api.createTask({
+          title: sanitizedTitle,
+          priority: newPriority,
+          category: newCategory,
+          userId: session?.user?.id
+        })
+        setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
+        showToast(`Created task in ${newCategory}`)
+        loadActivities()
+      } catch (err) {
+        console.error('Failed to create task:', err)
+        setTasks((prev) => prev.filter((t) => t.id !== tempId))
+        setErrorMessage(`Failed to add task: ${err.message}`)
+        showToast(`Error adding task: ${err.message}`, 'error')
+        setNewTaskTitle(sanitizedTitle)
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [newTaskTitle, newPriority, newCategory, isSubmitting, session, showToast, loadActivities]
+  )
 
-    try {
-      await api.updateTask(task.id, { completed: nextCompleted }, session?.user?.id)
-      showToast(nextCompleted ? `Marked "${task.title}" complete` : `Marked "${task.title}" active`)
-      loadActivities()
-    } catch (err) {
-      console.error('Failed to update task:', err)
+  // Toggle Task Completion with Spam-Click Protection & Busy Lock
+  const handleToggleTask = useCallback(
+    async (task) => {
+      if (busyTaskIds.has(task.id)) return
+
+      setBusyTaskIds((prev) => new Set(prev).add(task.id))
+      const nextCompleted = !task.completed
+
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, completed: task.completed } : t))
+        prev.map((t) => (t.id === task.id ? { ...t, completed: nextCompleted } : t))
       )
-      showToast(`Failed to update task: ${err.message}`, 'error')
-    }
-  }
+
+      try {
+        await api.updateTask(task.id, { completed: nextCompleted }, session?.user?.id)
+        showToast(nextCompleted ? `Marked "${task.title}" complete` : `Marked "${task.title}" active`)
+        loadActivities()
+      } catch (err) {
+        console.error('Failed to update task:', err)
+        setTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? { ...t, completed: task.completed } : t))
+        )
+        showToast(`Failed to update task: ${err.message}`, 'error')
+      } finally {
+        setTimeout(() => {
+          setBusyTaskIds((prev) => {
+            const next = new Set(prev)
+            next.delete(task.id)
+            return next
+          })
+        }, 400)
+      }
+    },
+    [busyTaskIds, session, showToast, loadActivities]
+  )
 
   // Start Inline Edit
-  const handleStartEdit = (task) => {
+  const handleStartEdit = useCallback((task) => {
     setEditingTaskId(task.id)
     setEditingTitle(task.title)
-  }
+  }, [])
 
   // Save Inline Edit with sanitization and validation
-  const handleSaveEdit = async (task) => {
-    if (!editingTaskId) return
-    const validation = validateTaskTitle(editingTitle)
+  const handleSaveEdit = useCallback(
+    async (task) => {
+      if (!editingTaskId) return
+      const validation = validateTaskTitle(editingTitle)
 
-    if (!validation.isValid) {
-      showToast(validation.error, 'error')
-      setEditingTaskId(null)
-      return
-    }
+      if (!validation.isValid) {
+        showToast(validation.error, 'error')
+        setEditingTaskId(null)
+        return
+      }
 
-    const sanitizedTitle = validation.sanitized
+      const sanitizedTitle = validation.sanitized
 
-    if (sanitizedTitle === task.title) {
-      setEditingTaskId(null)
-      return
-    }
+      if (sanitizedTitle === task.title) {
+        setEditingTaskId(null)
+        return
+      }
 
-    const previousTitle = task.title
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, title: sanitizedTitle } : t))
-    )
-    setEditingTaskId(null)
-
-    try {
-      await api.updateTask(task.id, { title: sanitizedTitle }, session?.user?.id)
-      showToast(`Renamed task to "${sanitizedTitle}"`)
-      loadActivities()
-    } catch (err) {
-      console.error('Failed to rename task:', err)
+      const previousTitle = task.title
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, title: previousTitle } : t))
+        prev.map((t) => (t.id === task.id ? { ...t, title: sanitizedTitle } : t))
       )
-      showToast(`Failed to rename task: ${err.message}`, 'error')
-    }
-  }
+      setEditingTaskId(null)
+
+      try {
+        await api.updateTask(task.id, { title: sanitizedTitle }, session?.user?.id)
+        showToast(`Renamed task to "${sanitizedTitle}"`)
+        loadActivities()
+      } catch (err) {
+        console.error('Failed to rename task:', err)
+        setTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? { ...t, title: previousTitle } : t))
+        )
+        showToast(`Failed to rename task: ${err.message}`, 'error')
+      }
+    },
+    [editingTaskId, editingTitle, session, showToast, loadActivities]
+  )
 
   // Delete Task
-  const handleDeleteTask = async (task) => {
-    const previousTasks = [...tasks]
-    setTasks((prev) => prev.filter((t) => t.id !== task.id))
-    setSelectedTaskIds((prev) => prev.filter((id) => id !== task.id))
+  const handleDeleteTask = useCallback(
+    async (task) => {
+      const previousTasks = [...tasks]
+      setTasks((prev) => prev.filter((t) => t.id !== task.id))
+      setSelectedTaskIds((prev) => prev.filter((id) => id !== task.id))
 
-    try {
-      await api.deleteTask(task.id, task.title, session?.user?.id)
-      showToast(`Deleted "${task.title}"`)
-      loadActivities()
-    } catch (err) {
-      console.error('Failed to delete task:', err)
-      setTasks(previousTasks)
-      showToast(`Failed to delete task: ${err.message}`, 'error')
-    }
-  }
+      try {
+        await api.deleteTask(task.id, task.title, session?.user?.id)
+        showToast(`Deleted "${task.title}"`)
+        loadActivities()
+      } catch (err) {
+        console.error('Failed to delete task:', err)
+        setTasks(previousTasks)
+        showToast(`Failed to delete task: ${err.message}`, 'error')
+      }
+    },
+    [tasks, session, showToast, loadActivities]
+  )
 
   // Clear Completed Tasks
-  const handleClearCompleted = async () => {
+  const handleClearCompleted = useCallback(async () => {
     const completedTasks = tasks.filter((t) => t.completed)
     if (completedTasks.length === 0) return
 
@@ -444,106 +471,115 @@ export default function App() {
       setTasks(previousTasks)
       showToast(`Failed to clear completed: ${err.message}`, 'error')
     }
-  }
+  }, [tasks, session, showToast, loadActivities])
 
   // Multi-Selection Toggle
-  const handleToggleSelect = (taskId) => {
+  const handleToggleSelect = useCallback((taskId) => {
     setSelectedTaskIds((prev) =>
       prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
     )
-  }
+  }, [])
 
   // Batch Status Update
-  const handleBatchStatus = async (completed) => {
-    if (selectedTaskIds.length === 0) return
-    const idsToUpdate = [...selectedTaskIds]
+  const handleBatchStatus = useCallback(
+    async (completed) => {
+      if (selectedTaskIds.length === 0) return
+      const idsToUpdate = [...selectedTaskIds]
 
-    setTasks((prev) =>
-      prev.map((t) => (idsToUpdate.includes(t.id) ? { ...t, completed } : t))
-    )
-    setSelectedTaskIds([])
+      setTasks((prev) =>
+        prev.map((t) => (idsToUpdate.includes(t.id) ? { ...t, completed } : t))
+      )
+      setSelectedTaskIds([])
 
-    try {
-      await api.batchCompleteTasks(idsToUpdate, completed, session?.user?.id)
-      showToast(`Updated ${idsToUpdate.length} tasks`)
-      loadActivities()
-    } catch (err) {
-      console.error('Failed to batch update:', err)
-      loadTasks(false)
-      showToast(`Failed to batch update: ${err.message}`, 'error')
-    }
-  }
+      try {
+        await api.batchCompleteTasks(idsToUpdate, completed, session?.user?.id)
+        showToast(`Updated ${idsToUpdate.length} tasks`)
+        loadActivities()
+      } catch (err) {
+        console.error('Failed to batch update:', err)
+        loadTasks(false)
+        showToast(`Failed to batch update: ${err.message}`, 'error')
+      }
+    },
+    [selectedTaskIds, session, showToast, loadActivities, loadTasks]
+  )
 
   // Drag and Drop Handlers
-  const handleDragStart = (e, task) => {
+  const handleDragStart = useCallback((e, task) => {
     setDraggedTaskId(task.id)
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', task.id)
-  }
+  }, [])
 
-  const handleDragOver = (e, targetTask) => {
-    e.preventDefault()
-    if (!draggedTaskId || draggedTaskId === targetTask.id) return
+  const handleDragOver = useCallback(
+    (e, targetTask) => {
+      e.preventDefault()
+      if (!draggedTaskId || draggedTaskId === targetTask.id) return
 
-    const rect = e.currentTarget.getBoundingClientRect()
-    const midY = rect.top + rect.height / 2
-    const pos = e.clientY < midY ? 'top' : 'bottom'
+      const rect = e.currentTarget.getBoundingClientRect()
+      const midY = rect.top + rect.height / 2
+      const pos = e.clientY < midY ? 'top' : 'bottom'
 
-    setDragOverTaskId(targetTask.id)
-    setDropPosition(pos)
-    e.dataTransfer.dropEffect = 'move'
-  }
+      setDragOverTaskId(targetTask.id)
+      setDropPosition(pos)
+      e.dataTransfer.dropEffect = 'move'
+    },
+    [draggedTaskId]
+  )
 
-  const handleDragLeave = (e) => {
+  const handleDragLeave = useCallback((e) => {
     if (e.currentTarget.contains(e.relatedTarget)) return
     setDragOverTaskId(null)
     setDropPosition(null)
-  }
+  }, [])
 
-  const handleDrop = async (e, targetTask) => {
-    e.preventDefault()
-    if (!draggedTaskId || draggedTaskId === targetTask.id) {
+  const handleDrop = useCallback(
+    async (e, targetTask) => {
+      e.preventDefault()
+      if (!draggedTaskId || draggedTaskId === targetTask.id) {
+        setDraggedTaskId(null)
+        setDragOverTaskId(null)
+        setDropPosition(null)
+        return
+      }
+
+      const currentList = [...tasks]
+      const draggedIndex = currentList.findIndex((t) => t.id === draggedTaskId)
+      const targetIndex = currentList.findIndex((t) => t.id === targetTask.id)
+
+      if (draggedIndex === -1 || targetIndex === -1) return
+
+      const [draggedItem] = currentList.splice(draggedIndex, 1)
+      const insertIndex = currentList.findIndex((t) => t.id === targetTask.id)
+      const finalIndex = dropPosition === 'bottom' ? insertIndex + 1 : insertIndex
+
+      currentList.splice(finalIndex, 0, draggedItem)
+
+      const updatedList = currentList.map((t, idx) => ({ ...t, order: idx }))
+      setTasks(updatedList)
+
       setDraggedTaskId(null)
       setDragOverTaskId(null)
       setDropPosition(null)
-      return
-    }
 
-    const currentList = [...tasks]
-    const draggedIndex = currentList.findIndex((t) => t.id === draggedTaskId)
-    const targetIndex = currentList.findIndex((t) => t.id === targetTask.id)
+      try {
+        const orderedIds = updatedList.map((t) => t.id)
+        await api.reorderTasks(orderedIds, session?.user?.id)
+        showToast('Task sequence reordered')
+        loadActivities()
+      } catch (err) {
+        console.error('Failed to save task order:', err)
+        showToast('Failed to save order to database', 'error')
+      }
+    },
+    [draggedTaskId, dropPosition, tasks, session, showToast, loadActivities]
+  )
 
-    if (draggedIndex === -1 || targetIndex === -1) return
-
-    const [draggedItem] = currentList.splice(draggedIndex, 1)
-    const insertIndex = currentList.findIndex((t) => t.id === targetTask.id)
-    const finalIndex = dropPosition === 'bottom' ? insertIndex + 1 : insertIndex
-
-    currentList.splice(finalIndex, 0, draggedItem)
-
-    const updatedList = currentList.map((t, idx) => ({ ...t, order: idx }))
-    setTasks(updatedList)
-
+  const handleDragEnd = useCallback(() => {
     setDraggedTaskId(null)
     setDragOverTaskId(null)
     setDropPosition(null)
-
-    try {
-      const orderedIds = updatedList.map((t) => t.id)
-      await api.reorderTasks(orderedIds, session?.user?.id)
-      showToast('Task sequence reordered')
-      loadActivities()
-    } catch (err) {
-      console.error('Failed to save task order:', err)
-      showToast('Failed to save order to database', 'error')
-    }
-  }
-
-  const handleDragEnd = () => {
-    setDraggedTaskId(null)
-    setDragOverTaskId(null)
-    setDropPosition(null)
-  }
+  }, [])
 
   // Metrics Calculations
   const metrics = useMemo(() => {
@@ -615,13 +651,13 @@ export default function App() {
     filteredTasks.length > 0 &&
     filteredTasks.every((t) => selectedTaskIds.includes(t.id))
 
-  const handleSelectAllFiltered = () => {
+  const handleSelectAllFiltered = useCallback(() => {
     if (areAllFilteredSelected) {
       setSelectedTaskIds([])
     } else {
       setSelectedTaskIds(filteredTasks.map((t) => t.id))
     }
-  }
+  }, [areAllFilteredSelected, filteredTasks])
 
   const isDnDActive =
     sortBy === 'custom' &&
@@ -712,6 +748,7 @@ export default function App() {
       {/* Fullscreen Zen Pomodoro Overlay */}
       {viewMode === 'fullscreen' && (
         <FocusSession
+          busyTaskIds={busyTaskIds}
           onToggleTask={handleToggleTask}
           onQuickAddTask={handleQuickAddTask}
         />
@@ -720,6 +757,8 @@ export default function App() {
       {/* Floating Picture-in-Picture (PiP) Mini Player */}
       {viewMode === 'minimized' && (
         <FocusMiniPlayer
+          tasks={tasks}
+          busyTaskIds={busyTaskIds}
           onToggleTask={handleToggleTask}
           onQuickAddTask={handleQuickAddTask}
         />
@@ -1183,6 +1222,7 @@ export default function App() {
                       type="button"
                       className={`custom-checkbox-btn ${task.completed ? 'checked' : ''}`}
                       onClick={() => handleToggleTask(task)}
+                      disabled={busyTaskIds.has(task.id)}
                       role="checkbox"
                       aria-checked={task.completed}
                       aria-label={`Mark "${task.title}" as ${task.completed ? 'incomplete' : 'complete'}`}

@@ -1,10 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useFocus } from '../context/useFocus.js'
 import { formatFocusTime, MODES } from '../context/focusConstants.js'
 import { validateTaskTitle } from '../utils/sanitize.js'
 import './FocusSession.css'
 
-export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
+const CATEGORY_MAP = {
+  General: 'GEN',
+  Engineering: 'ENG',
+  Design: 'DES',
+  Personal: 'PERS'
+}
+
+const CATEGORY_KEYS = ['General', 'Engineering', 'Design', 'Personal']
+const PRIORITY_KEYS = ['low', 'medium', 'high']
+
+export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTask, busyTaskIds = new Set() }) {
   const {
     mode,
     timeLeft,
@@ -20,24 +30,30 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
 
   // Draggable position state
   const [position, setPosition] = useState(() => ({
-    x: Math.max(20, (typeof window !== 'undefined' ? window.innerWidth : 1000) - 344),
-    y: Math.max(20, (typeof window !== 'undefined' ? window.innerHeight : 800) - 140)
+    x: Math.max(20, (typeof window !== 'undefined' ? window.innerWidth : 1000) - 370),
+    y: Math.max(20, (typeof window !== 'undefined' ? window.innerHeight : 800) - 320)
   }))
 
   const [isDragging, setIsDragging] = useState(false)
-  const [showQuickTask, setShowQuickTask] = useState(false)
   const [quickTitle, setQuickTitle] = useState('')
+  const [quickCategory, setQuickCategory] = useState('General')
+  const [quickPriority, setQuickPriority] = useState('medium')
   const [isAdding, setIsAdding] = useState(false)
 
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const playerRef = useRef(null)
 
+  // Active Pending Tasks (Top 3–4 items)
+  const activePendingTasks = useMemo(() => {
+    return tasks.filter((t) => !t.completed).slice(0, 4)
+  }, [tasks])
+
   // Handle window resizing to keep widget within viewport
   useEffect(() => {
     const handleResize = () => {
       setPosition((prev) => ({
-        x: Math.min(prev.x, window.innerWidth - 340),
-        y: Math.min(prev.y, window.innerHeight - 120)
+        x: Math.min(prev.x, window.innerWidth - 360),
+        y: Math.min(prev.y, window.innerHeight - 300)
       }))
     }
     window.addEventListener('resize', handleResize)
@@ -63,8 +79,8 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
       const newX = e.clientX - dragOffsetRef.current.x
       const newY = e.clientY - dragOffsetRef.current.y
 
-      const clampedX = Math.max(10, Math.min(newX, window.innerWidth - 340))
-      const clampedY = Math.max(10, Math.min(newY, window.innerHeight - 120))
+      const clampedX = Math.max(10, Math.min(newX, window.innerWidth - 360))
+      const clampedY = Math.max(10, Math.min(newY, window.innerHeight - 300))
 
       setPosition({ x: clampedX, y: clampedY })
     },
@@ -89,7 +105,7 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
-  // Handle Quick Task submit in Mini-Player
+  // Quick Task Add Handler
   const handleQuickSubmit = async (e) => {
     e.preventDefault()
     const validation = validateTaskTitle(quickTitle)
@@ -100,8 +116,8 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
       if (onQuickAddTask) {
         const created = await onQuickAddTask({
           title: validation.sanitized,
-          category: 'General',
-          priority: 'medium'
+          category: quickCategory,
+          priority: quickPriority
         })
         if (created) {
           setActiveTask(created)
@@ -109,12 +125,17 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
         }
       }
       setQuickTitle('')
-      setShowQuickTask(false)
     } catch (err) {
       console.error('Failed to quick add in mini-player:', err)
     } finally {
       setIsAdding(false)
     }
+  }
+
+  // Select Task as active focus goal
+  const handleSelectGoalTask = (task) => {
+    setActiveTask(task)
+    setSessionGoal(task.title)
   }
 
   return (
@@ -140,20 +161,6 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
         </div>
 
         <div className="mini-header-actions">
-          {/* Quick Task Add Toggle */}
-          <button
-            type="button"
-            className={`btn-mini-action ${showQuickTask ? 'active' : ''}`}
-            onClick={() => setShowQuickTask(!showQuickTask)}
-            title="Quick add task to registry"
-            aria-label="Quick add task"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
-
           {/* Expand to Fullscreen */}
           <button
             type="button"
@@ -186,36 +193,18 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
         </div>
       </div>
 
-      {/* Mini Player Body */}
+      {/* Timer & Current Active Goal */}
       <div className="mini-player-body">
         <div className="mini-body-left">
           <div className="mini-timer-digits">
             {formatFocusTime(timeLeft)}
           </div>
-          <div className="mini-goal-title" title={sessionGoal || activeTask?.title || 'Deep Work Session'}>
+          <div className="mini-goal-title" title={sessionGoal || activeTask?.title || 'Deep Work'}>
             {sessionGoal || activeTask?.title || 'Deep Work Session'}
           </div>
         </div>
 
         <div className="mini-controls-right">
-          {/* Optional Task Complete Checkbox */}
-          {activeTask && onToggleTask && (
-            <button
-              type="button"
-              className={`custom-checkbox-btn ${activeTask.completed ? 'checked' : ''}`}
-              onClick={() => onToggleTask(activeTask)}
-              title={activeTask.completed ? 'Mark task as active' : 'Mark task as complete'}
-              aria-label="Toggle task completion"
-            >
-              {activeTask.completed && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
-          )}
-
-          {/* Play/Pause Button */}
           <button
             type="button"
             className="btn-mini-play"
@@ -237,28 +226,113 @@ export default function FocusMiniPlayer({ onToggleTask, onQuickAddTask }) {
         </div>
       </div>
 
-      {/* Expandable Quick Task Row in Mini-Player */}
-      {showQuickTask && (
-        <form onSubmit={handleQuickSubmit} className="mini-quick-task-row">
+      {/* Active Tasks Sub-List (3–4 Pending Tasks) */}
+      <div className="mini-tasks-container">
+        <div className="mini-tasks-header">
+          <span>Active Backlog</span>
+          <span>{activePendingTasks.length} pending</span>
+        </div>
+
+        {activePendingTasks.length === 0 ? (
+          <div className="mini-empty-state">All pending tasks clear.</div>
+        ) : (
+          activePendingTasks.map((task) => {
+            const isTarget = activeTask?.id === task.id
+            const isBusy = busyTaskIds.has(task.id)
+            return (
+              <div key={task.id} className={`mini-task-item ${isTarget ? 'is-active-goal' : ''}`}>
+                <button
+                  type="button"
+                  className={`mini-checkbox-btn ${task.completed ? 'checked' : ''}`}
+                  onClick={() => onToggleTask(task)}
+                  disabled={isBusy}
+                  aria-label={`Mark "${task.title}" as complete`}
+                  title={isBusy ? 'Saving...' : 'Mark completed'}
+                >
+                  {task.completed && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+
+                <span
+                  className="mini-task-text"
+                  onClick={() => handleSelectGoalTask(task)}
+                  title={`Focus on: ${task.title}`}
+                >
+                  {task.title}
+                </span>
+
+                <span className="mini-tag-badge">
+                  {CATEGORY_MAP[task.category] || 'GEN'}
+                </span>
+
+                <span
+                  className={`mini-priority-dot ${task.priority || 'medium'}`}
+                  title={`Priority: ${task.priority || 'medium'}`}
+                />
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* In-Widget Quick Task Creator */}
+      <form onSubmit={handleQuickSubmit} className="mini-quick-add-form">
+        <div className="mini-quick-input-row">
           <input
             type="text"
-            className="quick-task-input"
-            placeholder="+ Add thought/task... (↵)"
+            className="mini-quick-input"
+            placeholder="+ Quick task (Enter ↵)"
             value={quickTitle}
             onChange={(e) => setQuickTitle(e.target.value)}
             maxLength={200}
             disabled={isAdding}
-            autoFocus
           />
           <button
             type="submit"
-            className="btn-quick-add"
+            className="btn-mini-quick-submit"
             disabled={!quickTitle.trim() || isAdding}
           >
             {isAdding ? '...' : 'Add'}
           </button>
-        </form>
-      )}
+        </div>
+
+        <div className="mini-quick-pills-row">
+          {/* Category mini pills */}
+          <div className="mini-pills-group">
+            {CATEGORY_KEYS.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`btn-mini-pill ${quickCategory === cat ? 'active' : ''}`}
+                onClick={() => setQuickCategory(cat)}
+                disabled={isAdding}
+                title={`Category: ${cat}`}
+              >
+                {CATEGORY_MAP[cat]}
+              </button>
+            ))}
+          </div>
+
+          {/* Priority mini pills */}
+          <div className="mini-pills-group">
+            {PRIORITY_KEYS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={`btn-mini-pill priority-${p} ${quickPriority === p ? 'active' : ''}`}
+                onClick={() => setQuickPriority(p)}
+                disabled={isAdding}
+                title={`Priority: ${p}`}
+              >
+                {p.charAt(0).toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+      </form>
     </div>
   )
 }

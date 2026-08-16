@@ -13,14 +13,6 @@ export const AMBIENT_PRESETS = [
   { id: 'gamma40', label: '40Hz Gamma' }
 ]
 
-export const ALARM_SOUNDS = [
-  { id: 'gentle_chime', label: 'Gentle Chime', desc: 'Melodic 3-tone arpeggio' },
-  { id: 'digital_beep', label: 'Digital Beep', desc: 'Classic 880Hz triple chime' },
-  { id: 'singing_bowl', label: 'Zen Singing Bowl', desc: 'Deep resonant meditation gong' },
-  { id: 'mechanical_bell', label: 'Mechanical Bell', desc: 'Metallic ping with high-frequency ring' },
-  { id: 'radar_pulse', label: 'Subtle Radar Pulse', desc: 'Soft sonar frequency sweep' }
-]
-
 /**
  * Format seconds into MM:SS
  */

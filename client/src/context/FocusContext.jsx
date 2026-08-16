@@ -22,14 +22,11 @@ export function FocusProvider({ children }) {
   const [sessionGoal, setSessionGoal] = useState('')
   const [activeTask, setActiveTask] = useState(null)
 
-  // Audio State (Ambient + Mechanical Ticking + Completion Alarm)
+  // Audio State (Ambient + Mechanical Ticking)
   const [ambientPreset, setAmbientPreset] = useState('none')
   const [ambientVolume, setAmbientVolume] = useState(0.4)
   const [isTickingEnabled, setIsTickingEnabled] = useState(false)
   const [tickingVolume, setTickingVolume] = useState(0.3)
-  const [selectedAlarm, setSelectedAlarm] = useState(() => {
-    return localStorage.getItem('focus_alarm_sound') || 'gentle_chime'
-  })
 
   // Web Audio Context & Node Refs (Persistent across view changes)
   const audioCtxRef = useRef(null)
@@ -37,14 +34,10 @@ export function FocusProvider({ children }) {
   const tickMasterGainRef = useRef(null)
   const ambientNodesRef = useRef([])
 
-  // Persist custom settings
+  // Persist custom duration setting
   useEffect(() => {
     localStorage.setItem('focus_custom_minutes', customMinutes.toString())
   }, [customMinutes])
-
-  useEffect(() => {
-    localStorage.setItem('focus_alarm_sound', selectedAlarm)
-  }, [selectedAlarm])
 
   // Initialize or resume persistent AudioContext
   const getAudioContext = useCallback(() => {
@@ -72,20 +65,26 @@ export function FocusProvider({ children }) {
     return audioCtxRef.current
   }, [ambientVolume, tickingVolume])
 
-  // Stop ambient sound nodes safely
+  // Strict Audio Garbage Collection: Stop and disconnect all procedural nodes
   const stopAmbientSound = useCallback(() => {
-    ambientNodesRef.current.forEach((node) => {
-      try {
-        if (node.stop) node.stop()
-        if (node.disconnect) node.disconnect()
-      } catch {
-        // Node already stopped
-      }
-    })
-    ambientNodesRef.current = []
+    if (ambientNodesRef.current && ambientNodesRef.current.length > 0) {
+      ambientNodesRef.current.forEach((node) => {
+        try {
+          if (node.stop) {
+            node.stop()
+          }
+          if (node.disconnect) {
+            node.disconnect()
+          }
+        } catch {
+          // Node already stopped or disconnected
+        }
+      })
+      ambientNodesRef.current = []
+    }
   }, [])
 
-  // Start procedural ambient sound preset
+  // Start procedural ambient sound preset with rigorous node tracking
   const startAmbientSound = useCallback(
     (preset) => {
       stopAmbientSound()
@@ -237,100 +236,31 @@ export function FocusProvider({ children }) {
     }
   }, [getAudioContext])
 
-  // 5 Procedural Completion Alarms (Synthesized with Web Audio API)
-  const playAlarmSound = useCallback(
-    (alarmId = selectedAlarm) => {
-      try {
-        const ctx = getAudioContext()
-        if (!ctx) return
-        const now = ctx.currentTime
+  // Single Crisp Default Completion Chime (Gentle Warm 4-Tone Arpeggio)
+  const playCompletionChime = useCallback(() => {
+    try {
+      const ctx = getAudioContext()
+      if (!ctx) return
+      const now = ctx.currentTime
 
-        if (alarmId === 'gentle_chime') {
-          // 1. Gentle Chime: Warm C5-E5-G5-C6 arpeggio with smooth decay
-          const notes = [523.25, 659.25, 783.99, 1046.50]
-          notes.forEach((freq, index) => {
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.type = 'sine'
-            osc.frequency.setValueAtTime(freq, now + index * 0.16)
-            gain.gain.setValueAtTime(0, now + index * 0.16)
-            gain.gain.linearRampToValueAtTime(0.3, now + index * 0.16 + 0.02)
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.16 + 0.9)
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.start(now + index * 0.16)
-            osc.stop(now + index * 0.16 + 0.9)
-          })
-        } else if (alarmId === 'digital_beep') {
-          // 2. Digital Beep: Classic 880Hz triple electronic chime
-          ;[0, 0.12, 0.24].forEach((offset) => {
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.type = 'square'
-            osc.frequency.setValueAtTime(880, now + offset)
-            gain.gain.setValueAtTime(0.18, now + offset)
-            gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.07)
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.start(now + offset)
-            osc.stop(now + offset + 0.07)
-          })
-        } else if (alarmId === 'singing_bowl') {
-          // 3. Zen Singing Bowl: Deep 261Hz fundamental + 523Hz/785Hz harmonics with 3.5s smooth resonance
-          const harmonics = [
-            { freq: 261.63, amp: 0.35, decay: 3.5 },
-            { freq: 523.25, amp: 0.2, decay: 2.8 },
-            { freq: 784.88, amp: 0.12, decay: 2.0 }
-          ]
-          harmonics.forEach(({ freq, amp, decay }) => {
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.type = 'sine'
-            osc.frequency.setValueAtTime(freq, now)
-            gain.gain.setValueAtTime(amp, now)
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + decay)
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.start(now)
-            osc.stop(now + decay)
-          })
-        } else if (alarmId === 'mechanical_bell') {
-          // 4. Mechanical Bell: Metallic inharmonic ring (1200Hz + 1940Hz + 3120Hz)
-          const freqs = [1200, 1940, 3120]
-          freqs.forEach((freq, i) => {
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.type = i === 0 ? 'sine' : 'triangle'
-            osc.frequency.setValueAtTime(freq, now)
-            gain.gain.setValueAtTime(0.25 / (i + 1), now)
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8)
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.start(now)
-            osc.stop(now + 1.8)
-          })
-        } else if (alarmId === 'radar_pulse') {
-          // 5. Subtle Radar Pulse: Sonar sweep (950Hz -> 420Hz)
-          ;[0, 0.55].forEach((offset) => {
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.type = 'sine'
-            osc.frequency.setValueAtTime(950, now + offset)
-            osc.frequency.exponentialRampToValueAtTime(420, now + offset + 0.35)
-            gain.gain.setValueAtTime(0.3, now + offset)
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.4)
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.start(now + offset)
-            osc.stop(now + offset + 0.4)
-          })
-        }
-      } catch (err) {
-        console.warn('Audio alarm synthesis notice:', err)
-      }
-    },
-    [getAudioContext, selectedAlarm]
-  )
+      const notes = [523.25, 659.25, 783.99, 1046.5]
+      notes.forEach((freq, index) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(freq, now + index * 0.16)
+        gain.gain.setValueAtTime(0, now + index * 0.16)
+        gain.gain.linearRampToValueAtTime(0.3, now + index * 0.16 + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.16 + 0.9)
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.start(now + index * 0.16)
+        osc.stop(now + index * 0.16 + 0.9)
+      })
+    } catch (err) {
+      console.warn('Audio chime notice:', err)
+    }
+  }, [getAudioContext])
 
   // Sync volume updates
   useEffect(() => {
@@ -446,7 +376,7 @@ export function FocusProvider({ children }) {
         setTimeLeft((prev) => {
           if (prev <= 1) {
             setIsRunning(false)
-            playAlarmSound()
+            playCompletionChime()
 
             // Record completion in Supabase activity log
             const titleLabel = sessionGoal ? ` on "${sessionGoal}"` : ''
@@ -468,7 +398,7 @@ export function FocusProvider({ children }) {
     return () => {
       if (intervalId) clearInterval(intervalId)
     }
-  }, [isRunning, isTickingEnabled, mode, sessionGoal, activeTask, playMechanicalTick, playAlarmSound])
+  }, [isRunning, isTickingEnabled, mode, sessionGoal, activeTask, playMechanicalTick, playCompletionChime])
 
   // Document Title Synchronization
   useEffect(() => {
@@ -484,10 +414,24 @@ export function FocusProvider({ children }) {
     }
   }, [viewMode, timeLeft, mode, sessionGoal])
 
-  // Audio Context cleanup on unmount
+  // Audio Context and Node cleanup on unmount
   useEffect(() => {
     return () => {
       stopAmbientSound()
+      if (ambientMasterGainRef.current) {
+        try {
+          ambientMasterGainRef.current.disconnect()
+        } catch {
+          // Ignored
+        }
+      }
+      if (tickMasterGainRef.current) {
+        try {
+          tickMasterGainRef.current.disconnect()
+        } catch {
+          // Ignored
+        }
+      }
       if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
         audioCtxRef.current.close().catch(() => {})
       }
@@ -507,7 +451,6 @@ export function FocusProvider({ children }) {
     ambientVolume,
     isTickingEnabled,
     tickingVolume,
-    selectedAlarm,
     // Actions
     startSession,
     minimizeSession,
@@ -522,9 +465,7 @@ export function FocusProvider({ children }) {
     changeAmbientPreset,
     setAmbientVolume,
     setIsTickingEnabled,
-    setTickingVolume,
-    setSelectedAlarm,
-    playAlarmSound
+    setTickingVolume
   }
 
   return <FocusContext.Provider value={value}>{children}</FocusContext.Provider>

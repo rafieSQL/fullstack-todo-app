@@ -4,15 +4,15 @@ import {
   formatFocusTime,
   MODES,
   DURATION_PRESETS,
-  AMBIENT_PRESETS,
-  ALARM_SOUNDS
+  AMBIENT_PRESETS
 } from '../context/focusConstants.js'
 import { validateTaskTitle } from '../utils/sanitize.js'
 import './FocusSession.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
+const PRIORITIES = ['low', 'medium', 'high']
 
-export default function FocusSession({ onToggleTask, onQuickAddTask }) {
+export default function FocusSession({ onToggleTask, onQuickAddTask, busyTaskIds = new Set() }) {
   const {
     mode,
     customMinutes,
@@ -24,7 +24,6 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
     ambientVolume,
     isTickingEnabled,
     tickingVolume,
-    selectedAlarm,
     switchMode,
     setCustomDuration,
     resetTimer,
@@ -33,8 +32,6 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
     setAmbientVolume,
     setIsTickingEnabled,
     setTickingVolume,
-    setSelectedAlarm,
-    playAlarmSound,
     setSessionGoal,
     setActiveTask,
     minimizeSession,
@@ -47,6 +44,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
   // In-session Quick Task form state
   const [quickTitle, setQuickTitle] = useState('')
   const [quickCategory, setQuickCategory] = useState('General')
+  const [quickPriority, setQuickPriority] = useState('medium')
   const [isAddingTask, setIsAddingTask] = useState(false)
 
   // Draggable Center Stage State
@@ -108,7 +106,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
         const created = await onQuickAddTask({
           title: validation.sanitized,
           category: quickCategory,
-          priority: 'medium'
+          priority: quickPriority
         })
         if (created) {
           setActiveTask(created)
@@ -357,6 +355,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
                   type="button"
                   className={`custom-checkbox-btn ${activeTask.completed ? 'checked' : ''}`}
                   onClick={() => onToggleTask(activeTask)}
+                  disabled={busyTaskIds.has(activeTask.id)}
                   aria-label={`Mark "${activeTask.title}" as ${activeTask.completed ? 'incomplete' : 'complete'}`}
                 >
                   {activeTask.completed && (
@@ -374,105 +373,67 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
           </div>
         )}
 
-        {/* In-Session Quick Task Creation Bar */}
-        <form onSubmit={handleQuickTaskSubmit} className="focus-quick-task-bar">
-          <input
-            ref={quickTaskInputRef}
-            type="text"
-            className="quick-task-input"
-            placeholder="+ Quick add task to registry... (Enter ↵)"
-            value={quickTitle}
-            onChange={(e) => setQuickTitle(e.target.value)}
-            maxLength={200}
-            disabled={isAddingTask}
-          />
-          <select
-            className="quick-task-cat-select"
-            value={quickCategory}
-            onChange={(e) => setQuickCategory(e.target.value)}
-            disabled={isAddingTask}
-          >
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="btn-quick-add"
-            disabled={!quickTitle.trim() || isAddingTask}
-          >
-            {isAddingTask ? 'Adding...' : 'Add'}
-          </button>
+        {/* Upgraded In-Session Quick Task Creation Card */}
+        <form onSubmit={handleQuickTaskSubmit} className="focus-quick-task-card">
+          <div className="quick-task-input-row">
+            <input
+              ref={quickTaskInputRef}
+              type="text"
+              className="quick-task-input"
+              placeholder="+ Quick add task to registry... (Enter ↵)"
+              value={quickTitle}
+              onChange={(e) => setQuickTitle(e.target.value)}
+              maxLength={200}
+              disabled={isAddingTask}
+            />
+            <button
+              type="submit"
+              className="btn-quick-save"
+              disabled={!quickTitle.trim() || isAddingTask}
+            >
+              {isAddingTask ? 'Saving...' : 'Add Task'}
+            </button>
+          </div>
+
+          <div className="quick-task-selectors-row">
+            {/* Category Selector Pills */}
+            <div className="quick-selectors-group">
+              <span className="quick-selector-label">Category:</span>
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  className={`quick-chip-btn ${quickCategory === cat ? 'active' : ''}`}
+                  onClick={() => setQuickCategory(cat)}
+                  disabled={isAddingTask}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Priority Selector Pills */}
+            <div className="quick-selectors-group">
+              <span className="quick-selector-label">Priority:</span>
+              {PRIORITIES.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={`quick-chip-btn priority-${p} ${quickPriority === p ? 'active' : ''}`}
+                  onClick={() => setQuickPriority(p)}
+                  disabled={isAddingTask}
+                >
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
         </form>
       </main>
 
       {/* Footer & Audio Settings */}
       <footer className="focus-footer">
-        {/* Completion Alarm Selection Bar */}
-        <div className="alarm-selector-bar">
-          <div className="alarm-select-group">
-            <span className="ambient-label">Completion Alarm:</span>
-            <select
-              className="alarm-select"
-              value={selectedAlarm}
-              onChange={(e) => setSelectedAlarm(e.target.value)}
-            >
-              {ALARM_SOUNDS.map((alarm) => (
-                <option key={alarm.id} value={alarm.id}>
-                  {alarm.label} ({alarm.desc})
-                </option>
-              ))}
-            </select>
-
-            <button
-              type="button"
-              className="btn-preview-alarm"
-              onClick={() => playAlarmSound(selectedAlarm)}
-              title="Preview selected alarm audio"
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-              <span>Test</span>
-            </button>
-          </div>
-
-          {/* Mechanical Clock Ticking Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              className={`btn-tick-toggle ${isTickingEnabled ? 'active' : ''}`}
-              onClick={() => setIsTickingEnabled(!isTickingEnabled)}
-              title="Toggle rhythmic mechanical clock ticking audio"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 14 10" />
-              </svg>
-              <span>Tick Sound: {isTickingEnabled ? 'ON' : 'OFF'}</span>
-            </button>
-
-            {isTickingEnabled && (
-              <div className="ambient-volume-group">
-                <span className="ambient-label">Tick Vol:</span>
-                <input
-                  type="range"
-                  className="volume-slider"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={tickingVolume}
-                  onChange={(e) => setTickingVolume(parseFloat(e.target.value))}
-                  aria-label="Clock ticking volume"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Ambient Sound Bar */}
+        {/* Ambient Sound & Mechanical Clock Tick Bar */}
         <div className="ambient-audio-bar">
           <div className="ambient-presets-group">
             <span className="ambient-label">Ambient Sound:</span>
@@ -489,6 +450,7 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
           </div>
 
           <div className="ambient-controls-right">
+            {/* Ambient Sound Volume */}
             {ambientPreset !== 'none' && (
               <div className="ambient-volume-group">
                 <span className="ambient-label">Noise Vol:</span>
@@ -501,6 +463,37 @@ export default function FocusSession({ onToggleTask, onQuickAddTask }) {
                   value={ambientVolume}
                   onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
                   aria-label="Ambient noise volume"
+                />
+              </div>
+            )}
+
+            {/* Mechanical Clock Ticking Toggle */}
+            <button
+              type="button"
+              className={`btn-tick-toggle ${isTickingEnabled ? 'active' : ''}`}
+              onClick={() => setIsTickingEnabled(!isTickingEnabled)}
+              title="Toggle rhythmic mechanical clock ticking audio"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 14 10" />
+              </svg>
+              <span>Tick Sound: {isTickingEnabled ? 'ON' : 'OFF'}</span>
+            </button>
+
+            {/* Clock Ticking Volume */}
+            {isTickingEnabled && (
+              <div className="ambient-volume-group">
+                <span className="ambient-label">Tick Vol:</span>
+                <input
+                  type="range"
+                  className="volume-slider"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={tickingVolume}
+                  onChange={(e) => setTickingVolume(parseFloat(e.target.value))}
+                  aria-label="Clock ticking volume"
                 />
               </div>
             )}
