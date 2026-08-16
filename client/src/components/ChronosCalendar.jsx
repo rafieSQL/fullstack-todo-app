@@ -49,10 +49,13 @@ export default function ChronosCalendar({
   const [quickPriority, setQuickPriority] = useState('medium')
   const [isCreatingQuickTask, setIsCreatingQuickTask] = useState(false)
 
-  // Drag-and-drop state
+  // Drag-and-drop state & interaction locks
   const [draggedTask, setDraggedTask] = useState(null)
   const [draggedEvent, setDraggedEvent] = useState(null)
   const [dragOverSlot, setDragOverSlot] = useState(null)
+
+  const isInteractingRef = useRef(false)
+  const busyEventIdsRef = useRef(new Set())
 
   // Resizing state
   const [resizingEvent, setResizingEvent] = useState(null)
@@ -120,7 +123,9 @@ export default function ChronosCalendar({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'calendar_events' },
         () => {
-          loadEvents()
+          if (!isInteractingRef.current) {
+            loadEvents()
+          }
         }
       )
       .subscribe()
@@ -143,15 +148,24 @@ export default function ChronosCalendar({
     [tasks]
   )
 
-  // Auto-Accomplish on Deadline Pass Engine
+  // Auto-Accomplish on Deadline Pass Engine (with race condition locks)
   useEffect(() => {
     const checkAndAutoAccomplish = async () => {
+      // Pause checks while user is dragging, dropping, or rescheduling
+      if (isInteractingRef.current) return
+
       const currentMs = new Date().getTime()
       const expiredItems = events.filter(
-        (ev) => !isItemCompleted(ev) && currentMs >= new Date(ev.end_time).getTime()
+        (ev) =>
+          !isItemCompleted(ev) &&
+          !busyEventIdsRef.current.has(ev.id) &&
+          currentMs >= new Date(ev.end_time).getTime()
       )
 
       if (expiredItems.length > 0) {
+        // Lock expired items
+        expiredItems.forEach((ev) => busyEventIdsRef.current.add(ev.id))
+
         // Optimistically update calendar state
         setEvents((prev) =>
           prev.map((ev) =>
@@ -179,6 +193,8 @@ export default function ChronosCalendar({
             })
           } catch (err) {
             console.error('Failed to auto-accomplish task on deadline:', err)
+          } finally {
+            busyEventIdsRef.current.delete(exp.id)
           }
         }
       }
@@ -294,6 +310,8 @@ export default function ChronosCalendar({
     const currentlyDone = isItemCompleted(event)
     const nextDone = !currentlyDone
 
+    busyEventIdsRef.current.add(event.id)
+
     // Optimistic calendar state update
     setEvents((prev) =>
       prev.map((ev) => (ev.id === event.id ? { ...ev, is_completed: nextDone } : ev))
@@ -326,11 +344,14 @@ export default function ChronosCalendar({
     } catch (err) {
       console.error('Failed to sync completion status:', err)
       loadEvents()
+    } finally {
+      busyEventIdsRef.current.delete(event.id)
     }
   }
 
   // Handle Dragging from Sidebar
   const handleTaskDragStart = (e, task) => {
+    isInteractingRef.current = true
     setDraggedTask(task)
     setDraggedEvent(null)
     try {
@@ -345,6 +366,7 @@ export default function ChronosCalendar({
   // Handle Dragging Scheduled Task on Grid
   const handleEventDragStart = (e, event) => {
     e.stopPropagation()
+    isInteractingRef.current = true
     setDraggedEvent(event)
     setDraggedTask(null)
     try {
@@ -367,11 +389,12 @@ export default function ChronosCalendar({
     setDragOverSlot(null)
   }
 
-  // Drop on Slot (Schedule Task OR Reschedule Task)
+  // Drop on Slot (Schedule Task OR Reschedule Task with Race-Condition Protection)
   const handleSlotDrop = async (e, date, hour) => {
     e.preventDefault()
     e.stopPropagation()
     setDragOverSlot(null)
+    isInteractingRef.current = true
 
     // Resolve drag payload
     let payload = null
@@ -387,7 +410,10 @@ export default function ChronosCalendar({
 
     setDraggedTask(null)
     setDraggedEvent(null)
-    if (!activeItem) return
+    if (!activeItem) {
+      isInteractingRef.current = false
+      return
+    }
 
     const start = new Date(date)
     start.setHours(hour, 0, 0, 0)
@@ -399,33 +425,62 @@ export default function ChronosCalendar({
       const durationMs = Math.max(1800000, origEnd - origStart)
       const end = new Date(start.getTime() + durationMs)
 
+      const isPast = new Date().getTime() >= end.getTime()
+      const nextCompleted = isPast || Boolean(activeItem.is_completed)
+
+      busyEventIdsRef.current.add(activeItem.id)
+
       const updatedEvent = {
         ...activeItem,
         start_time: start.toISOString(),
-        end_time: end.toISOString()
+        end_time: end.toISOString(),
+        is_completed: nextCompleted
       }
 
-      // Optimistic state
+      // Optimistic state update
       const preList = events.map((ev) => (ev.id === activeItem.id ? updatedEvent : ev))
       const { morphedEvents: optMorphed, changedEvents } = morphSchedule(preList, autoMorphEnabled)
       setEvents(optMorphed)
-      showToast(`Rescheduled "${activeItem.title}" to ${formatHour(hour)}`)
 
       try {
         await updateCalendarEvent(activeItem.id, {
           start_time: updatedEvent.start_time,
-          end_time: updatedEvent.end_time
+          end_time: updatedEvent.end_time,
+          is_completed: nextCompleted
         })
+
+        // Synchronize linked task in main registry if dropped into the past
+        if (isPast && activeItem.task_id && onToggleTask) {
+          const matched = tasks.find((t) => t.id === activeItem.task_id)
+          if (matched && !matched.completed) {
+            onToggleTask(matched)
+          }
+        }
+
+        if (isPast) {
+          showToast(`Scheduled and marked "${activeItem.title}" as completed`)
+        } else {
+          showToast(`Rescheduled "${activeItem.title}" to ${formatHour(hour)}`)
+        }
+
         if (changedEvents.length > 0) {
           for (const ev of changedEvents) {
-            await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+            try {
+              await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+            } catch {
+              // ignore ripple shift non-critical errors
+            }
           }
-          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} tasks to prevent overlap.`)
         }
       } catch (err) {
         console.error('Failed to reschedule task:', err)
         loadEvents()
         showToast('Failed to reschedule task.', 'error')
+      } finally {
+        busyEventIdsRef.current.delete(activeItem.id)
+        setTimeout(() => {
+          isInteractingRef.current = false
+        }, 300)
       }
       return
     }
@@ -433,8 +488,11 @@ export default function ChronosCalendar({
     // Schedule task from backlog
     const end = new Date(start)
     end.setHours(hour + 1, 0, 0, 0)
+    const isPast = new Date().getTime() >= end.getTime()
 
     const tempId = `temp-${activeItem.id}-${start.getTime()}`
+    busyEventIdsRef.current.add(tempId)
+
     const optimisticEvent = {
       id: tempId,
       task_id: activeItem.id,
@@ -444,14 +502,13 @@ export default function ChronosCalendar({
       category: activeItem.category || 'General',
       priority: activeItem.priority || 'medium',
       auto_morph: true,
-      is_completed: false,
+      is_completed: isPast,
       created_at: start.toISOString()
     }
 
     const preList = [...events, optimisticEvent]
     const { morphedEvents: optMorphed } = morphSchedule(preList, autoMorphEnabled)
     setEvents(optMorphed)
-    showToast(`Scheduled "${activeItem.title}" at ${formatHour(hour)}`)
 
     try {
       const created = await createCalendarEvent({
@@ -462,15 +519,30 @@ export default function ChronosCalendar({
         category: activeItem.category || 'General',
         priority: activeItem.priority || 'medium',
         autoMorph: true,
+        isCompleted: isPast,
         userId: user?.id
       })
 
+      busyEventIdsRef.current.add(created.id)
       const updatedList = events.map((ev) => (ev.id === tempId ? created : ev))
       if (!updatedList.some((ev) => ev.id === created.id)) {
         updatedList.push(created)
       }
       const { morphedEvents, changedEvents } = morphSchedule(updatedList, autoMorphEnabled)
       setEvents(morphedEvents)
+
+      if (isPast && onToggleTask) {
+        const matched = tasks.find((t) => t.id === activeItem.id)
+        if (matched && !matched.completed) {
+          onToggleTask(matched)
+        }
+      }
+
+      if (isPast) {
+        showToast(`Scheduled and marked "${activeItem.title}" as completed`)
+      } else {
+        showToast(`Scheduled "${activeItem.title}" at ${formatHour(hour)}`)
+      }
 
       logActivity({
         type: 'create',
@@ -481,15 +553,23 @@ export default function ChronosCalendar({
       if (changedEvents.length > 0) {
         for (const ev of changedEvents) {
           if (!ev.id.startsWith('temp-')) {
-            await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+            try {
+              await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+            } catch {
+              // ignore
+            }
           }
         }
-        showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} tasks to prevent overlap.`)
       }
     } catch (err) {
       console.error('Failed to drop task onto calendar:', err)
       setEvents((prev) => prev.filter((ev) => ev.id !== tempId))
       showToast(err.message || 'Failed to schedule task.', 'error')
+    } finally {
+      busyEventIdsRef.current.delete(tempId)
+      setTimeout(() => {
+        isInteractingRef.current = false
+      }, 300)
     }
   }
 
@@ -508,6 +588,7 @@ export default function ChronosCalendar({
     e.preventDefault()
     e.stopPropagation()
     setIsSidebarDragOver(false)
+    isInteractingRef.current = true
 
     let payload = null
     try {
@@ -523,6 +604,7 @@ export default function ChronosCalendar({
     if (eventToUnschedule) {
       await handleUnscheduleEvent(eventToUnschedule)
     }
+    isInteractingRef.current = false
   }
 
   // Unschedule Task (Delete from calendar, return task to backlog)
@@ -547,6 +629,7 @@ export default function ChronosCalendar({
   // Bottom Edge Duration Resize Listeners
   const handleResizeStart = (e, event) => {
     e.stopPropagation()
+    isInteractingRef.current = true
     setResizingEvent(event)
     resizeStartRef.current = {
       startY: e.clientY,
@@ -590,7 +673,13 @@ export default function ChronosCalendar({
         }
       } catch (err) {
         console.error('Failed to save resized task:', err)
+      } finally {
+        setTimeout(() => {
+          isInteractingRef.current = false
+        }, 300)
       }
+    } else {
+      isInteractingRef.current = false
     }
   }, [resizingEvent, events, autoMorphEnabled])
 

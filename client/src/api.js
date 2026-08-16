@@ -521,6 +521,7 @@ export async function createCalendarEvent({
   category = 'General',
   priority = 'medium',
   autoMorph = true,
+  isCompleted = false,
   userId = null
 }) {
   const cleanTitle = sanitizeText(title, 250)
@@ -561,7 +562,7 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
-      is_completed: false,
+      is_completed: Boolean(isCompleted),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
@@ -578,7 +579,7 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
-      is_completed: false,
+      is_completed: Boolean(isCompleted),
       user_id: activeUserId
     }
 
