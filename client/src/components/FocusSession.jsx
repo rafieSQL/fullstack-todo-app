@@ -47,9 +47,9 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
   const [quickPriority, setQuickPriority] = useState('medium')
   const [isAddingTask, setIsAddingTask] = useState(false)
 
-  // Pending tasks sub-backlog in Fullscreen (Top 5 active tasks)
+  // Pending tasks sub-backlog in Fullscreen (ALL active tasks)
   const pendingTasks = useMemo(() => {
-    return (tasks || []).filter((t) => !t.completed).slice(0, 5)
+    return (tasks || []).filter((t) => !t.completed)
   }, [tasks])
 
   // Draggable Center Stage State
@@ -123,11 +123,10 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
     }
   }
 
-  // Explicitly select a task to target it as focus goal
+  // Explicitly select a task to target it (NEVER alters sessionGoal!)
   const handleSelectGoalTask = (task, e) => {
     if (e) e.stopPropagation()
-    setActiveTask(task)
-    setSessionGoal(task.title)
+    setActiveTask((prev) => (prev?.id === task.id ? null : task))
   }
 
   // Keyboard Shortcuts (Space, R, Esc to minimize)

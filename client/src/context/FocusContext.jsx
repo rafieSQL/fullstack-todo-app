@@ -334,7 +334,11 @@ export function FocusProvider({ children }) {
   const startSession = useCallback(
     (task = null, customTitle = '') => {
       setActiveTask(task)
-      setSessionGoal(customTitle || task?.title || 'Deep Work Session')
+      setSessionGoal((prev) => {
+        if (customTitle) return customTitle
+        if (prev && prev.trim() !== '') return prev
+        return 'Deep Work Session'
+      })
       setMode('focus')
       setTimeLeft(customMinutes * 60)
       setViewMode('fullscreen')

@@ -24,8 +24,7 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
     togglePlay,
     expandSession,
     endSession,
-    setActiveTask,
-    setSessionGoal
+    setActiveTask
   } = useFocus()
 
   // Draggable position state
@@ -43,9 +42,9 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const playerRef = useRef(null)
 
-  // Active Pending Tasks (Top 4 items)
+  // Active Pending Tasks (ALL active items)
   const activePendingTasks = useMemo(() => {
-    return (tasks || []).filter((t) => !t.completed).slice(0, 4)
+    return (tasks || []).filter((t) => !t.completed)
   }, [tasks])
 
   // Handle window resizing to keep widget within viewport
@@ -136,11 +135,10 @@ export default function FocusMiniPlayer({ tasks = [], onToggleTask, onQuickAddTa
     }
   }
 
-  // Select Task as active focus goal
+  // Select/Target Task as active focus target (NEVER alters sessionGoal!)
   const handleSelectGoalTask = (task, e) => {
     if (e) e.stopPropagation()
-    setActiveTask(task)
-    setSessionGoal(task.title)
+    setActiveTask((prev) => (prev?.id === task.id ? null : task))
   }
 
   return (
