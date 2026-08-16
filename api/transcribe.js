@@ -60,11 +60,17 @@ export default async function handler(req, res) {
                       }
                     },
                     {
-                      text: 'Transkripsikan audio ini ke dalam teks bahasa Indonesia secara akurat dan persis seperti yang diucapkan. Hanya kembalikan teks hasil transkripsinya saja tanpa penjelasan tambahan atau tanda kutip.'
+                      text: `Dengarkan audio bahasa Indonesia ini secara teliti.
+- Audio berisi perintah manajemen tugas / to-do list (misal: "selesaikan", "selesain", "hapus", "ilangin", "tambah", "kerjakan", nama tugas, jadwal, dsb).
+- Transkripsikan kata per kata secara akurat meskipun ada logat santai, slang, atau singkatan sehari-hari (contoh: "maen" -> "main", "udah" -> "sudah", "kelar" -> "kelar").
+- Hanya kembalikan teks hasil transkripsi murni tanpa tanda kutip atau penjelasan tambahan.`
                     }
                   ]
                 }
-              ]
+              ],
+              generationConfig: {
+                temperature: 0.1
+              }
             })
           }
         );
@@ -91,6 +97,7 @@ export default async function handler(req, res) {
         const pre = Buffer.from(
           `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-large-v3\r\n` +
             `--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\nid\r\n` +
+            `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nPerintah to-do list bahasa Indonesia: selesaikan, hapus, tambah, jadwal\r\n` +
             `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${
               mimeType || 'audio/webm'
             }\r\n\r\n`
@@ -109,17 +116,19 @@ export default async function handler(req, res) {
 
         if (groqRes.ok) {
           const groqData = await groqRes.json();
-          const text = (groqData.text || '').trim();
-          return res.status(200).json({ text });
+          if (groqData.text) {
+            return res.status(200).json({ text: groqData.text.trim() });
+          }
         }
       } catch (groqErr) {
-        console.warn('Groq Whisper fallback error:', groqErr.message);
+        console.warn('Groq Whisper Transcribe error:', groqErr.message);
       }
     }
 
-    return res.status(500).json({ error: 'Gagal memproses transkripsi suara.' });
+    return res.status(500).json({
+      error: 'Audio transcription failed. Ensure GEMINI_API_KEY or GROQ_API_KEY is configured.'
+    });
   } catch (error) {
-    console.error('Transcribe API Error:', error);
-    return res.status(500).json({ error: 'Gagal memproses transkripsi suara.' });
+    return res.status(500).json({ error: error.message || 'Transcribe server error' });
   }
 }

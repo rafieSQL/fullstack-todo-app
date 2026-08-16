@@ -1171,6 +1171,8 @@ export default function App() {
       })
 
       if (transcribedText && transcribedText.trim()) {
+        console.log('🎙️ Transcribed Audio:', transcribedText)
+        showToast(`🎙️ Mendengar: "${transcribedText}"`, 'info')
         setInterimVoiceText(`🧠 Memproses: "${transcribedText}"...`)
         try {
           const result = await parseCommandWithAI(

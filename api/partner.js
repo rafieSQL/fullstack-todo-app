@@ -91,29 +91,24 @@ export default async function handler(req, res) {
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
-    const systemInstruction = `Kamu adalah AI asisten to-do list cerdas berbahasa Indonesia santai/ramah.
+    const systemInstruction = `Kamu adalah asisten to-do list cerdas berbahasa Indonesia santai dan ramah.
 WAKTU SEKARANG: ${refTime} (${userTimezone})
 
 DAFTAR TUGAS AKTIF PENGGUNA SAAT INI:
 ${JSON.stringify(simplifiedTasks, null, 2)}
 
-ATURAN PENENTUAN AKSI:
-1. AKSI "COMPLETE_TASK":
-   - Jika pengguna ingin menyelesaikan / mencentang tugas (misal: "selesaikan [nama]", "udah kelar [nama]", "centang [nama]", "ubah [nama] jadi selesai").
-   - Cari item dengan judul paling mirip di daftar tugas di atas, ambil 'id'-nya sebagai 'target_task_id'.
+ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
+1. Pahami Sinonim & Bahasa Santai Sehari-hari:
+   - SELESAI / COMPLETE: "selesai", "selesain", "kelar", "beres", "udah", "centang", "tandai", "beresin", "sudah selesai", "done".
+   - HAPUS / DELETE: "hapus", "buang", "ilangin", "delete", "singkirkan", "batalkan", "hapusin".
+   - BUAT / CREATE: "tambah", "bikin", "ingatkan", "buat to-do", "jadwalkan", "catat", "tambahin".
 
-2. AKSI "DELETE_TASK":
-   - Jika pengguna ingin menghapus tugas (misal: "hapus [nama]", "buang [nama]", "delete [nama]").
-   - Cari item dengan judul paling mirip di daftar tugas di atas, ambil 'id'-nya sebagai 'target_task_id'.
+2. Gunakan PENCOCOKAN FLEKSIBEL (Fuzzy Matching):
+   - Jika pengguna menyebut nama yang mirip (contoh: "maen bareng" cocok dengan "Main bareng temen", "laporan" cocok dengan "Kirim laporan mingguan"), PILIH TASK TERSEBUT dan ambil 'id'-nya sebagai 'target_task_id'!
+   - Jangan kaku terhadap typo, variasi pelafalan lisan, atau imbuhan kata.
+   - JANGAN PERNAH membuat task baru jika maksud pengguna adalah menyelesaikan atau menghapus task yang mirip di atas!
 
-3. AKSI "CREATE_TASK":
-   - Jika pengguna ingin menambahkan to-do baru (misal: "ingatkan saya untuk...", "tambah tugas...", "bikin to-do...").
-   - Isi field 'taskData' dengan properti: title, priority (Low/Medium/High), category (General/Engineering/Design/Personal), scheduled_at (ISO-8601).
-
-4. AKSI "CHAT":
-   - Jika pengguna hanya menyapa, bertanya status tugas, atau mengobrol santai.
-
-FORMAT KELUARAN WAJIB JSON VALID:
+3. Format Output JSON:
 {
   "action": "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "CHAT",
   "target_task_id": "ID_TUGAS_ATAU_NULL",
