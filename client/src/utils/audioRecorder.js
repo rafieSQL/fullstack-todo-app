@@ -36,8 +36,9 @@ export function isRecording() {
  * Transcribe audio blob by sending base64 to /api/transcribe (Gemini / Whisper backend)
  */
 export async function transcribeAudioBlob(audioBlob) {
-  if (!audioBlob || audioBlob.size === 0) {
-    throw new Error('Suara tidak terdengar jelas, silakan coba lagi.')
+  if (!audioBlob || audioBlob.size < 2000) {
+    console.warn('Audio blob is too small (< 2KB / silence), skipping transcription:', audioBlob?.size)
+    return ''
   }
 
   const mimeType = audioBlob.type || 'audio/webm'
@@ -63,13 +64,14 @@ export async function transcribeAudioBlob(audioBlob) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        audio: base64Data,
         audioBase64: base64Data,
         mimeType: mimeType.split(';')[0]
       })
     })
 
     const data = await res.json()
-    if (res.ok && data.text) {
+    if (res.ok && typeof data.text === 'string') {
       return data.text.trim()
     }
   } catch (apiErr) {
@@ -170,13 +172,15 @@ export const stopRecording = async ({ onStatusChange, onError } = {}) => {
           mediaStream = null
         }
 
-        if (!audioBlob || audioBlob.size === 0) {
-          resolve(null)
+        if (!audioBlob || audioBlob.size < 2000) {
+          console.warn('Audio blob size is too small (< 2KB / hening):', audioBlob?.size)
+          onStatusChange?.('Suara tidak terdeteksi (terlalu singkat). Silakan bicara lebih jelas.')
+          resolve('')
           return
         }
 
         const text = await transcribeAudioBlob(audioBlob)
-        resolve(text)
+        resolve(text || '')
       } catch (err) {
         console.error('Processing Audio Error:', err)
         onError?.(err)
