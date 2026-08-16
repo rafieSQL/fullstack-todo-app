@@ -64,7 +64,6 @@ export default function App() {
 
   // Data state
   const [tasks, setTasks] = useState([])
-  const [activities, setActivities] = useState([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newPriority, setNewPriority] = useState('medium')
   const [newCategory, setNewCategory] = useState('General')
@@ -94,7 +93,6 @@ export default function App() {
   const [sortBy, setSortBy] = useState('custom') // 'custom' | 'newest' | 'oldest' | 'priority' | 'alphabetical'
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTaskIds, setSelectedTaskIds] = useState([])
-  const [isActivityOpen, setIsActivityOpen] = useState(false)
 
   // Theme state
   const [theme, setTheme] = useState(() => {
@@ -160,16 +158,6 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }
 
-  // Load activities
-  const loadActivities = useCallback(async () => {
-    try {
-      const actData = await api.getActivityLog(15)
-      setActivities(actData)
-    } catch {
-      // Non-blocking
-    }
-  }, [])
-
   // Fetch tasks helper for manual user sync/retry
   const loadTasks = useCallback(
     async (showLoadingSpinner = true) => {
@@ -178,7 +166,6 @@ export default function App() {
         setErrorMessage(null)
         const data = await api.getTasks()
         setTasks(data)
-        await loadActivities()
       } catch (err) {
         console.error('Failed to fetch tasks:', err)
         setErrorMessage(err.message || 'Failed to connect to database.')
@@ -186,7 +173,7 @@ export default function App() {
         if (showLoadingSpinner) setIsLoading(false)
       }
     },
-    [loadActivities]
+    []
   )
 
   // 1. Initialize Supabase Auth Session
@@ -225,11 +212,10 @@ export default function App() {
     if (session || isDemoMode) {
       let isMounted = true
 
-      Promise.all([api.getTasks(), api.getActivityLog(15)])
-        .then(([tasksData, actData]) => {
+      api.getTasks()
+        .then((tasksData) => {
           if (isMounted) {
             setTasks(tasksData)
-            setActivities(actData)
             setIsLoading(false)
           }
         })
@@ -1478,9 +1464,6 @@ export default function App() {
         handleOpenFocusSession={handleOpenFocusSession}
         theme={theme}
         toggleTheme={toggleTheme}
-        isActivityOpen={isActivityOpen}
-        setIsActivityOpen={setIsActivityOpen}
-        activities={activities}
         loadTasks={loadTasks}
         isPartnerActive={isPartnerRecording}
         isPartnerProcessing={isPartnerProcessing}
@@ -1981,53 +1964,6 @@ export default function App() {
         </footer>
       </section>
       </>
-      )}
-
-      {/* Collapsible Activity Log Drawer */}
-      {isActivityOpen && (
-        <section className="activity-drawer" aria-label="System Activity Log">
-          <div
-            className="activity-drawer-header"
-            onClick={() => setIsActivityOpen(false)}
-            title="Click to collapse activity log"
-          >
-            <div className="activity-drawer-title">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              <span>Recent System Activity</span>
-              <span className="activity-badge">{activities.length}</span>
-            </div>
-            <button
-              type="button"
-              className="btn-link"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsActivityOpen(false)
-              }}
-            >
-              Close
-            </button>
-          </div>
-
-          <ul className="activity-list">
-            {activities.length === 0 ? (
-              <li className="activity-item">
-                <span className="activity-item-message" style={{ color: 'var(--text-muted)' }}>
-                  No recent activities recorded.
-                </span>
-              </li>
-            ) : (
-              activities.map((act) => (
-                <li key={act.id} className="activity-item">
-                  <span className="activity-item-message">{act.message}</span>
-                  <span className="activity-item-time">{formatTimeAgo(act.created_at || act.timestamp)}</span>
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
       )}
 
       {/* Shortcuts Legend */}
