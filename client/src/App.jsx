@@ -527,7 +527,11 @@ export default function App() {
 
   // Toggle Task Completion with Spam-Click Protection & Busy Lock
   const handleToggleTask = useCallback(
-    async (task) => {
+    async (taskOrId) => {
+      const task =
+        typeof taskOrId === 'string' ? tasks.find((t) => t.id === taskOrId) : taskOrId
+
+      if (!task || !task.id) return
       if (busyTaskIds.has(task.id)) return
 
       setBusyTaskIds((prev) => new Set(prev).add(task.id))
@@ -557,7 +561,7 @@ export default function App() {
         }, 400)
       }
     },
-    [busyTaskIds, session, showToast, loadActivities]
+    [tasks, busyTaskIds, session, showToast, loadActivities]
   )
 
   // Start Inline Edit

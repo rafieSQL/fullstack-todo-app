@@ -72,42 +72,56 @@ export default async function handler(req, res) {
     const userTimezone = timezone || 'Asia/Jakarta';
     const refTime = clientTime || new Date().toISOString();
 
-    const tasksList = activeTasks || incomingTasks || existingTasks || [];
-    const activeTasksContext =
-      Array.isArray(tasksList) && tasksList.length > 0
-        ? JSON.stringify(tasksList.slice(0, 15), null, 2)
-        : '[]';
+    const rawTasks = activeTasks || incomingTasks || existingTasks || [];
+    const tasksCleanList = Array.isArray(rawTasks)
+      ? rawTasks.slice(0, 15).map((t) => ({
+          id: t.id || t._id,
+          title: t.title,
+          completed: Boolean(t.completed)
+        }))
+      : [];
 
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
-    const systemInstruction = `Kamu adalah asisten manajemen tugas & kalender AI Partner.
-WAKTU SEKARANG (User): ${refTime}
-TIMEZONE: ${userTimezone}
+    const systemInstruction = `Kamu adalah AI pengelola to-do list & kalender.
+WAKTU SEKARANG: ${refTime} (${userTimezone})
 
-DAFTAR TUGAS AKTIF PENGGUNA SAAT INI (Konteks Memory):
-${activeTasksContext}
+DAFTAR TUGAS AKTIF SAAT INI:
+${JSON.stringify(tasksCleanList, null, 2)}
 
-ATURAN PENTING & PRIORITAS AKSI:
-1. JIKA pengguna mengatakan "selesaikan", "sudah", "beres", "done", "kelar", "centang", atau "tandai selesai [nama tugas]":
-   - Cari tugas yang paling mirip atau cocok dari DAFTAR TUGAS AKTIF di atas.
-   - Set action: "COMPLETE_TASK" dan masukkan ID tugas yang cocok ke "target_task_id" / "targetId".
-   - JANGAN PERNAH membuat tugas baru ("CREATE_TASKS") jika maksud pengguna adalah menyelesaikan tugas yang sudah ada!
-   - Buat jawaban suara yang ramah: contoh "Siap bro, tugas 'Main bareng temen' sudah ditandai selesai!".
-2. JIKA pengguna mengatakan "hapus", "delete", "batalkan [nama tugas]":
-   - Cari tugas yang cocok dari DAFTAR TUGAS AKTIF di atas.
-   - Set action: "DELETE_TASK" dan masukkan ID tugas ke "target_task_id" / "targetId".
-3. JIKA pengguna ingin membuat tugas baru atau jadwal baru:
-   - Set action: "CREATE_TASKS" dan sertakan rincian tugas di array "tasks".
-4. Hitung tanggal & jam relatif ('besok', 'nanti malam jam 8', 'selasa jam 13') secara akurat berdasarkan WAKTU SEKARANG.
-5. "confirmation_reply" & "reply": Balasan singkat, hangat, dan natural khas Partner.
+ATURAN WAJIB INTENT RECOGNITION:
+1. Jika pengguna menyebut kata "ubah", "selesaikan", "sudah", "beres", "done", "centang", "kelar", atau "tandai" diikuti nama tugas yang MIRIP dengan daftar di atas:
+   - JANGAN PERNAH membuat task baru (DILARANG KERAS aksi CREATE / ADD / CREATE_TASKS)!
+   - Cari item dengan nama paling cocok dari daftar di atas, ambil properti 'id'-nya.
+   - Kembalikan response JSON:
+   {
+     "action": "COMPLETE_TASK",
+     "target_task_id": "<ID_PERSIS_DARI_LIST>",
+     "targetId": "<ID_PERSIS_DARI_LIST>",
+     "reply": "Tugas '<NAMA_TUGAS>' sudah ditandai selesai!",
+     "confirmation_reply": "Tugas '<NAMA_TUGAS>' sudah ditandai selesai!"
+   }
+
+2. Jika pengguna menyebut kata "hapus", "delete", atau "batalkan" diikuti nama tugas dari daftar di atas:
+   - JANGAN membuat task baru!
+   - Ambil properti 'id'-nya dan kembalikan action "DELETE_TASK":
+   {
+     "action": "DELETE_TASK",
+     "target_task_id": "<ID_PERSIS_DARI_LIST>",
+     "targetId": "<ID_PERSIS_DARI_LIST>",
+     "reply": "Tugas '<NAMA_TUGAS>' berhasil dihapus.",
+     "confirmation_reply": "Tugas '<NAMA_TUGAS>' berhasil dihapus."
+   }
+
+3. HANYA gunakan aksi "CREATE_TASKS" jika pengguna secara eksplisit ingin menambahkan hal/tugas baru yang belum ada di daftar di atas.
 
 Return STRICT JSON matching this schema:
 {
   "action": "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
-  "target_task_id": "ID tugas yang cocok jika COMPLETE_TASK atau DELETE_TASK, selain itu null",
-  "targetId": "ID tugas yang cocok jika COMPLETE_TASK atau DELETE_TASK, selain itu null",
-  "title": "Judul ringkas tugas",
+  "target_task_id": "string or null",
+  "targetId": "string or null",
+  "title": "string",
   "workspace": "General" | "Engineering" | "Design" | "Personal",
   "category": "General" | "Engineering" | "Design" | "Personal",
   "priority": "Low" | "Medium" | "High",
@@ -115,12 +129,12 @@ Return STRICT JSON matching this schema:
   "due_date": "ISO-8601 string or null",
   "duration_minutes": 30,
   "is_ambiguous": false,
-  "confirmation_reply": "Balasan ramah Partner",
   "reply": "Balasan ramah Partner",
+  "confirmation_reply": "Balasan ramah Partner",
   "reply_summary": "Balasan ramah Partner",
   "tasks": [
     {
-      "title": "Judul tugas",
+      "title": "string",
       "workspace": "General" | "Engineering" | "Design" | "Personal",
       "category": "General" | "Engineering" | "Design" | "Personal",
       "priority": "Low" | "Medium" | "High",
