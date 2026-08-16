@@ -223,6 +223,16 @@ export function startVoiceListening({
           )
           netErr.name = 'NetworkError'
           onError?.(netErr)
+        } else if (event.error === 'audio-capture') {
+          onError?.(
+            new Error(
+              'Mikrofon tidak terdeteksi atau sedang dipakai aplikasi lain. Pastikan mic terpasang dan diizinkan.'
+            )
+          )
+        } else if (event.error === 'not-allowed') {
+          onError?.(
+            new Error('Izin mikrofon ditolak oleh browser. Silakan izinkan akses mic di URL bar.')
+          )
         } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           onError?.(new Error(`Voice error: ${event.error}`))
         }
