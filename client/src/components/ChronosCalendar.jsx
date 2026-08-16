@@ -108,7 +108,7 @@ export default function ChronosCalendar({
     return () => {
       active = false
     }
-  }, [showToast])
+  }, [showToast, user])
 
   // Supabase Real-Time Channel Subscription
   useEffect(() => {

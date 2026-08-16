@@ -16,7 +16,6 @@ export class ApiError extends Error {
 // Columns to fetch for minimal payload transfer
 const TASK_FIELDS = 'id, title, priority, category, completed, "order", created_at, updated_at'
 const ACTIVITY_FIELDS = 'id, type, message, details, created_at'
-const CALENDAR_FIELDS = 'id, task_id, title, start_time, end_time, category, priority, auto_morph, is_completed, event_type, recurrence, created_at, updated_at'
 
 // In-memory fallback dataset for sandbox/preview mode
 let mockTasks = [
@@ -492,7 +491,7 @@ export async function getCalendarEvents({ start = null, end = null } = {}) {
   try {
     let query = supabase
       .from('calendar_events')
-      .select(CALENDAR_FIELDS)
+      .select('*')
       .order('start_time', { ascending: true })
 
     if (start) query = query.gte('end_time', start)
@@ -500,13 +499,14 @@ export async function getCalendarEvents({ start = null, end = null } = {}) {
 
     const { data, error } = await query
     if (error) {
-      console.warn('Calendar fetch error, using local fallback:', error.message)
-      return mockCalendarEvents
+      console.error('Calendar fetch error from Supabase:', error.message)
+      throw new ApiError(error.message, 400, error)
     }
     return data || []
   } catch (err) {
-    console.warn('Calendar query failed:', err)
-    return mockCalendarEvents
+    console.error('Calendar query failed:', err)
+    if (err instanceof ApiError) throw err
+    return []
   }
 }
 
@@ -521,8 +521,6 @@ export async function createCalendarEvent({
   category = 'General',
   priority = 'medium',
   autoMorph = true,
-  eventType = 'task',
-  recurrence = 'none',
   userId = null
 }) {
   const cleanTitle = sanitizeText(title, 250)
@@ -538,15 +536,19 @@ export async function createCalendarEvent({
   let activeUserId = isValidUuid(userId) ? userId : null
   if (isSupabaseConfigured && !activeUserId) {
     try {
-      const { data } = await supabase.auth.getUser()
-      if (data?.user?.id) activeUserId = data.user.id
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (sessionData?.session?.user?.id && isValidUuid(sessionData.session.user.id)) {
+        activeUserId = sessionData.session.user.id
+      } else {
+        const { data: userData } = await supabase.auth.getUser()
+        if (userData?.user?.id && isValidUuid(userData.user.id)) {
+          activeUserId = userData.user.id
+        }
+      }
     } catch {
       // ignore
     }
   }
-
-  const safeEventType = eventType === 'event' ? 'event' : 'task'
-  const safeRecurrence = ['none', 'daily', 'weekdays', 'weekly'].includes(recurrence) ? recurrence : 'none'
 
   // Fallback to local memory if Supabase not configured or no active authenticated user
   if (!isSupabaseConfigured || !activeUserId) {
@@ -559,8 +561,6 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
-      event_type: safeEventType,
-      recurrence: safeRecurrence,
       is_completed: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -578,50 +578,26 @@ export async function createCalendarEvent({
       category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
       priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
       auto_morph: Boolean(autoMorph),
-      event_type: safeEventType,
-      recurrence: safeRecurrence,
-      is_completed: false
+      is_completed: false,
+      user_id: activeUserId
     }
-    if (activeUserId) payload.user_id = activeUserId
 
     const { data, error } = await supabase
       .from('calendar_events')
       .insert([payload])
-      .select(CALENDAR_FIELDS)
+      .select('*')
       .single()
 
     if (error) {
-      console.warn('Supabase calendar insert notice, using local store:', error.message)
-      const fallbackEvent = {
-        id: `cal-${Date.now()}`,
-        ...payload,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-      mockCalendarEvents.push(fallbackEvent)
-      return fallbackEvent
+      console.error('Supabase calendar insert error:', error.message)
+      throw new ApiError(error.message, 400, error)
     }
 
     return data
   } catch (err) {
-    console.warn('Calendar schedule fallback due to error:', err)
-    const fallbackEvent = {
-      id: `cal-${Date.now()}`,
-      title: cleanTitle,
-      start_time: sTime,
-      end_time: eTime,
-      task_id: safeTaskId,
-      category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
-      priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
-      auto_morph: Boolean(autoMorph),
-      event_type: safeEventType,
-      recurrence: safeRecurrence,
-      is_completed: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }
-    mockCalendarEvents.push(fallbackEvent)
-    return fallbackEvent
+    if (err instanceof ApiError) throw err
+    console.error('Calendar schedule failed:', err)
+    throw new ApiError(err.message || 'Failed to schedule calendar task', 500, err)
   }
 }
 
@@ -654,16 +630,17 @@ export async function updateCalendarEvent(id, updates = {}) {
       .from('calendar_events')
       .update(payload)
       .eq('id', id)
-      .select(CALENDAR_FIELDS)
+      .select('*')
       .single()
 
     if (error) {
-      console.warn('Supabase calendar update notice:', error.message)
-      return { id, ...updates }
+      console.error('Supabase calendar update error:', error.message)
+      throw new ApiError(error.message, 400, error)
     }
     return data
   } catch (err) {
-    console.warn('Calendar update network fallback:', err)
+    if (err instanceof ApiError) throw err
+    console.error('Calendar update failed:', err)
     return { id, ...updates }
   }
 }
@@ -682,14 +659,14 @@ export async function deleteCalendarEvent(id) {
   try {
     const { error } = await supabase.from('calendar_events').delete().eq('id', id)
     if (error) {
-      console.warn('Supabase calendar delete notice:', error.message)
-      mockCalendarEvents = mockCalendarEvents.filter((e) => e.id !== id)
+      console.error('Supabase calendar delete error:', error.message)
+      throw new ApiError(error.message, 400, error)
     }
     return true
   } catch (err) {
-    console.warn('Calendar delete network fallback:', err)
-    mockCalendarEvents = mockCalendarEvents.filter((e) => e.id !== id)
-    return true
+    if (err instanceof ApiError) throw err
+    console.error('Calendar delete failed:', err)
+    throw new ApiError(err.message || 'Failed to delete calendar event', 500, err)
   }
 }
 
