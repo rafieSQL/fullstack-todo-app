@@ -10,7 +10,6 @@ import FocusSession from './components/FocusSession.jsx'
 import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
-import { speakBack } from './utils/tts.js'
 import {
   startRecording,
   stopRecording,
@@ -920,16 +919,15 @@ export default function App() {
         result.reply_summary ||
         ''
 
-      // Defensive TTS Playback Helper
+      // Defensive Speech Synthesis Playback Helper
       const safeSpeakBack = (text) => {
         if (!text) return
-        if (typeof speakBack === 'function') {
-          speakBack(text)
-        } else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
           try {
             window.speechSynthesis.cancel()
-            const utterance = new SpeechSynthesisUtterance(text)
+            const utterance = new SpeechSynthesisUtterance(text.replace(/[#*`_~]/g, '').trim())
             utterance.lang = 'id-ID'
+            utterance.rate = 1.0
             window.speechSynthesis.speak(utterance)
           } catch {
             // ignore
