@@ -26,19 +26,10 @@ function request(options, body = null) {
   })
 }
 
-async function runAdvancedTests() {
-  console.log('--- Testing Advanced Endpoints ---')
+async function runTests() {
+  console.log('--- Testing DnD Reorder & Category Endpoints ---')
   try {
-    // 1. GET /api/activity
-    const actRes = await request({
-      hostname: 'localhost',
-      port: PORT,
-      path: '/api/activity?limit=5',
-      method: 'GET'
-    })
-    console.log('✓ GET /api/activity status:', actRes.status, 'Events returned:', actRes.body.length)
-
-    // 2. Create sample tasks for batch testing
+    // 1. POST task with category
     const t1 = await request(
       {
         hostname: 'localhost',
@@ -47,8 +38,10 @@ async function runAdvancedTests() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       },
-      { title: 'Batch item 1', priority: 'low' }
+      { title: 'Test engineering task', priority: 'high', category: 'Engineering' }
     )
+    console.log('✓ Created task with category:', t1.body.title, '[', t1.body.category, ']')
+
     const t2 = await request(
       {
         hostname: 'localhost',
@@ -57,42 +50,41 @@ async function runAdvancedTests() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       },
-      { title: 'Batch item 2', priority: 'high' }
+      { title: 'Test design task', priority: 'medium', category: 'Design' }
     )
+    console.log('✓ Created task with category:', t2.body.title, '[', t2.body.category, ']')
 
-    console.log('✓ Created 2 tasks for batch testing:', t1.body.id, t2.body.id)
+    // 2. GET /api/tasks?category=Engineering
+    const engTasks = await request({
+      hostname: 'localhost',
+      port: PORT,
+      path: '/api/tasks?category=Engineering',
+      method: 'GET'
+    })
+    console.log('✓ GET /api/tasks?category=Engineering count:', engTasks.body.length)
 
-    // 3. PATCH /api/tasks/batch-complete
-    const batchRes = await request(
+    // 3. PATCH /api/tasks/reorder
+    const reorderRes = await request(
       {
         hostname: 'localhost',
         port: PORT,
-        path: '/api/tasks/batch-complete',
+        path: '/api/tasks/reorder',
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' }
       },
-      { taskIds: [t1.body.id, t2.body.id], completed: true }
+      { orderedIds: [t2.body.id, t1.body.id] }
     )
-    console.log('✓ PATCH /api/tasks/batch-complete:', batchRes.status, batchRes.body.message)
-
-    // 4. Verify activity log has the batch event
-    const actAfter = await request({
-      hostname: 'localhost',
-      port: PORT,
-      path: '/api/activity?limit=3',
-      method: 'GET'
-    })
-    console.log('✓ Latest activity:', actAfter.body[0]?.message)
+    console.log('✓ PATCH /api/tasks/reorder status:', reorderRes.status, reorderRes.body.message)
 
     // Clean up
     await request({ hostname: 'localhost', port: PORT, path: `/api/tasks/${t1.body.id}`, method: 'DELETE' })
     await request({ hostname: 'localhost', port: PORT, path: `/api/tasks/${t2.body.id}`, method: 'DELETE' })
     console.log('✓ Cleaned up test items')
 
-    console.log('\nAll Advanced API Endpoint tests passed successfully!')
+    console.log('\nAll Drag-and-Drop & Category tests passed successfully!')
   } catch (err) {
     console.error('Test error:', err)
   }
 }
 
-runAdvancedTests()
+runTests()

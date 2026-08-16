@@ -4,6 +4,8 @@
     "title": "Configure automated container vulnerability scanning",
     "priority": "high",
     "completed": false,
-    "createdAt": "2026-08-15T15:03:55.243Z"
+    "createdAt": "2026-08-15T15:03:55.243Z",
+    "category": "General",
+    "order": 2
   }
 ]

@@ -19,12 +19,22 @@ const DATA_DIR = path.join(__dirname, 'data')
 const DATA_FILE = path.join(DATA_DIR, 'tasks.json')
 const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.json')
 
+const VALID_CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
+
+function normalizeCategory(cat) {
+  if (!cat || typeof cat !== 'string') return 'General'
+  const match = VALID_CATEGORIES.find((c) => c.toLowerCase() === cat.trim().toLowerCase())
+  return match || 'General'
+}
+
 // Initial seed tasks
 const INITIAL_TASKS = [
   {
     id: 'task-1',
     title: 'Audit database connection pooling and query timeouts',
     priority: 'high',
+    category: 'Engineering',
+    order: 0,
     completed: false,
     createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString()
   },
@@ -32,6 +42,8 @@ const INITIAL_TASKS = [
     id: 'task-2',
     title: 'Review pull request #104: Add idempotency headers to API endpoints',
     priority: 'medium',
+    category: 'Engineering',
+    order: 1,
     completed: false,
     createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString()
   },
@@ -39,6 +51,8 @@ const INITIAL_TASKS = [
     id: 'task-3',
     title: 'Standardize error response payloads across services',
     priority: 'low',
+    category: 'Design',
+    order: 2,
     completed: true,
     createdAt: new Date(Date.now() - 1000 * 60 * 360).toISOString()
   },
@@ -46,6 +60,8 @@ const INITIAL_TASKS = [
     id: 'task-4',
     title: 'Configure automated container vulnerability scanning',
     priority: 'high',
+    category: 'Engineering',
+    order: 3,
     completed: false,
     createdAt: new Date(Date.now() - 1000 * 60 * 720).toISOString()
   }
@@ -65,6 +81,12 @@ function loadData() {
     if (fs.existsSync(DATA_FILE)) {
       const data = fs.readFileSync(DATA_FILE, 'utf-8')
       tasks = JSON.parse(data)
+      // Ensure category and order exist on legacy items
+      tasks = tasks.map((t, idx) => ({
+        ...t,
+        category: normalizeCategory(t.category),
+        order: typeof t.order === 'number' ? t.order : idx
+      }))
     } else {
       tasks = [...INITIAL_TASKS]
       saveTasks()
@@ -190,10 +212,10 @@ app.get('/api/activity', (req, res) => {
   }
 })
 
-// 3. GET /api/tasks - Fetch all tasks with optional search and filter
+// 3. GET /api/tasks - Fetch all tasks with optional search, category, priority, and sort
 app.get('/api/tasks', (req, res) => {
   try {
-    const { status, priority, search, sort } = req.query
+    const { status, priority, category, search, sort } = req.query
     let filtered = [...tasks]
 
     // Status filter
@@ -208,6 +230,14 @@ app.get('/api/tasks', (req, res) => {
       filtered = filtered.filter((t) => t.priority === priority.toLowerCase())
     }
 
+    // Category filter
+    if (category && category !== 'all') {
+      const normalizedCat = normalizeCategory(category)
+      filtered = filtered.filter(
+        (t) => (t.category || 'General').toLowerCase() === normalizedCat.toLowerCase()
+      )
+    }
+
     // Search query
     if (search && search.trim() !== '') {
       const term = search.trim().toLowerCase()
@@ -215,7 +245,9 @@ app.get('/api/tasks', (req, res) => {
     }
 
     // Sorting
-    if (sort === 'oldest') {
+    if (sort === 'newest') {
+      filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    } else if (sort === 'oldest') {
       filtered.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
     } else if (sort === 'priority') {
       const pWeights = { high: 3, medium: 2, low: 1 }
@@ -223,8 +255,13 @@ app.get('/api/tasks', (req, res) => {
     } else if (sort === 'alphabetical') {
       filtered.sort((a, b) => a.title.localeCompare(b.title))
     } else {
-      // Default: newest first
-      filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      // Default: Persistent Custom Order (or newest if equal)
+      filtered.sort((a, b) => {
+        const orderA = typeof a.order === 'number' ? a.order : 9999
+        const orderB = typeof b.order === 'number' ? b.order : 9999
+        if (orderA !== orderB) return orderA - orderB
+        return new Date(b.createdAt) - new Date(a.createdAt)
+      })
     }
 
     res.json(filtered)
@@ -237,7 +274,7 @@ app.get('/api/tasks', (req, res) => {
 // 4. POST /api/tasks - Create a new task
 app.post('/api/tasks', (req, res) => {
   try {
-    const { title, priority = 'medium' } = req.body
+    const { title, priority = 'medium', category = 'General' } = req.body
 
     if (!title || typeof title !== 'string' || title.trim() === '') {
       return res.status(400).json({ error: 'Task title is required and cannot be empty' })
@@ -247,11 +284,17 @@ app.post('/api/tasks', (req, res) => {
     const normalizedPriority = validPriorities.includes(priority?.toLowerCase())
       ? priority.toLowerCase()
       : 'medium'
+    const normalizedCategory = normalizeCategory(category)
+
+    // Shift existing order numbers so new task is at top (order 0)
+    tasks = tasks.map((t) => ({ ...t, order: (typeof t.order === 'number' ? t.order : 0) + 1 }))
 
     const newTask = {
       id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       title: title.trim(),
       priority: normalizedPriority,
+      category: normalizedCategory,
+      order: 0,
       completed: false,
       createdAt: new Date().toISOString()
     }
@@ -259,9 +302,11 @@ app.post('/api/tasks', (req, res) => {
     tasks.unshift(newTask)
     saveTasks()
 
-    logActivity('create', `Created task "${newTask.title}" [${newTask.priority.toUpperCase()}]`, {
-      taskId: newTask.id
-    })
+    logActivity(
+      'create',
+      `Created task "${newTask.title}" [${newTask.category} • ${newTask.priority.toUpperCase()}]`,
+      { taskId: newTask.id }
+    )
 
     res.status(201).json(newTask)
   } catch (error) {
@@ -270,7 +315,58 @@ app.post('/api/tasks', (req, res) => {
   }
 })
 
-// 5. PATCH /api/tasks/batch-complete - Batch toggle status for multiple tasks
+// 5. PATCH /api/tasks/reorder - Reorder task sequences persistently
+// Note: Must be declared BEFORE /api/tasks/:id
+app.patch('/api/tasks/reorder', (req, res) => {
+  try {
+    const { orderedIds } = req.body
+
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return res.status(400).json({ error: 'orderedIds must be an array of task IDs' })
+    }
+
+    const taskMap = new Map(tasks.map((t) => [t.id, t]))
+    const reorderedTasks = []
+
+    // Reorder matching tasks
+    orderedIds.forEach((id, index) => {
+      if (taskMap.has(id)) {
+        const task = taskMap.get(id)
+        task.order = index
+        task.updatedAt = new Date().toISOString()
+        reorderedTasks.push(task)
+        taskMap.delete(id)
+      }
+    })
+
+    // Append any remaining tasks
+    let nextIndex = orderedIds.length
+    for (const remainingTask of taskMap.values()) {
+      remainingTask.order = nextIndex++
+      reorderedTasks.push(remainingTask)
+    }
+
+    tasks = reorderedTasks
+    saveTasks()
+
+    logActivity(
+      'reorder',
+      `Reordered task list sequence (${orderedIds.length} items)`,
+      { count: orderedIds.length }
+    )
+
+    res.json({
+      message: 'Tasks reordered successfully',
+      count: orderedIds.length,
+      tasks
+    })
+  } catch (error) {
+    console.error('Failed to reorder tasks:', error)
+    res.status(500).json({ error: 'Failed to reorder tasks' })
+  }
+})
+
+// 6. PATCH /api/tasks/batch-complete - Batch toggle status for multiple tasks
 // Note: Must be declared BEFORE /api/tasks/:id
 app.patch('/api/tasks/batch-complete', (req, res) => {
   try {
@@ -318,7 +414,7 @@ app.patch('/api/tasks/batch-complete', (req, res) => {
   }
 })
 
-// 6. DELETE /api/tasks/completed - Clear all completed tasks
+// 7. DELETE /api/tasks/completed - Clear all completed tasks
 // Note: Must be declared BEFORE /api/tasks/:id
 app.delete('/api/tasks/completed', (req, res) => {
   try {
@@ -345,11 +441,11 @@ app.delete('/api/tasks/completed', (req, res) => {
   }
 })
 
-// 7. PATCH /api/tasks/:id - Update task (toggle complete, edit title/priority)
+// 8. PATCH /api/tasks/:id - Update task (toggle complete, edit title/priority/category/order)
 app.patch('/api/tasks/:id', (req, res) => {
   try {
     const { id } = req.params
-    const { completed, title, priority } = req.body
+    const { completed, title, priority, category, order } = req.body
 
     const taskIndex = tasks.findIndex((t) => t.id === id)
     if (taskIndex === -1) {
@@ -379,6 +475,18 @@ app.patch('/api/tasks/:id', (req, res) => {
       changes.push(`priority set to ${task.priority.toUpperCase()}`)
     }
 
+    if (category) {
+      const normCat = normalizeCategory(category)
+      if (task.category !== normCat) {
+        task.category = normCat
+        changes.push(`category set to ${normCat}`)
+      }
+    }
+
+    if (typeof order === 'number') {
+      task.order = order
+    }
+
     task.updatedAt = new Date().toISOString()
     tasks[taskIndex] = task
     saveTasks()
@@ -396,7 +504,7 @@ app.patch('/api/tasks/:id', (req, res) => {
   }
 })
 
-// 8. DELETE /api/tasks/:id - Delete a specific task
+// 9. DELETE /api/tasks/:id - Delete a specific task
 app.delete('/api/tasks/:id', (req, res) => {
   try {
     const { id } = req.params

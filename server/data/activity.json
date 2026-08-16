@@ -1,5 +1,40 @@
 [
   {
+    "id": "act-1786850862688-iasb",
+    "type": "delete",
+    "message": "Deleted task \"Test design task\"",
+    "timestamp": "2026-08-16T03:27:42.688Z",
+    "taskId": "task-1786850862661-lrtw3"
+  },
+  {
+    "id": "act-1786850862683-5vxq",
+    "type": "delete",
+    "message": "Deleted task \"Test engineering task\"",
+    "timestamp": "2026-08-16T03:27:42.683Z",
+    "taskId": "task-1786850862644-1jlqm"
+  },
+  {
+    "id": "act-1786850862678-tngg",
+    "type": "reorder",
+    "message": "Reordered task list sequence (2 items)",
+    "timestamp": "2026-08-16T03:27:42.678Z",
+    "count": 2
+  },
+  {
+    "id": "act-1786850862662-04ux",
+    "type": "create",
+    "message": "Created task \"Test design task\" [Design • MEDIUM]",
+    "timestamp": "2026-08-16T03:27:42.662Z",
+    "taskId": "task-1786850862661-lrtw3"
+  },
+  {
+    "id": "act-1786850862646-5yq8",
+    "type": "create",
+    "message": "Created task \"Test engineering task\" [Engineering • HIGH]",
+    "timestamp": "2026-08-16T03:27:42.646Z",
+    "taskId": "task-1786850862644-1jlqm"
+  },
+  {
     "id": "act-1786850555001-zjzw",
     "type": "clear-completed",
     "message": "Purged 1 completed task",

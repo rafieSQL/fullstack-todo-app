@@ -1,5 +1,7 @@
 :root {
-  /* Editorial Utilitarian Color Tokens */
+  /* ==========================================================================
+     Editorial Utilitarian Color Tokens (Light Mode - Default)
+     ========================================================================== */
   --bg-page: #fafafa;
   --bg-surface: #ffffff;
   --bg-subtle: #f4f4f5;
@@ -19,7 +21,7 @@
   --accent-hover: #27272a;
   --accent-contrast: #ffffff;
 
-  /* Priority Tokens */
+  /* Priority Tokens (Light Mode) */
   --priority-low-bg: #f1f5f9;
   --priority-low-text: #334155;
   --priority-low-border: #e2e8f0;
@@ -31,6 +33,23 @@
   --priority-high-bg: #fee2e2;
   --priority-high-text: #991b1b;
   --priority-high-border: #fecaca;
+
+  /* Category Tokens (Light Mode) */
+  --cat-eng-bg: #f0f4ff;
+  --cat-eng-text: #1e40af;
+  --cat-eng-border: #dbeafe;
+
+  --cat-des-bg: #f5f3ff;
+  --cat-des-text: #5b21b6;
+  --cat-des-border: #ede9fe;
+
+  --cat-pers-bg: #f0fdf4;
+  --cat-pers-text: #166534;
+  --cat-pers-border: #dcfce7;
+
+  --cat-gen-bg: #f4f4f5;
+  --cat-gen-text: #3f3f46;
+  --cat-gen-border: #e4e4e7;
 
   /* Status Tokens */
   --status-success-bg: #f0fdf4;
@@ -62,6 +81,75 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ==========================================================================
+   Pure Charcoal/Zinc Dark Mode (Zero AI Purple / Glow / Neon)
+   ========================================================================== */
+[data-theme="dark"] {
+  --bg-page: #09090b;
+  --bg-surface: #18181b;
+  --bg-subtle: #27272a;
+  --bg-hover: #2e2e33;
+  --bg-active: #3f3f46;
+
+  --border-light: #27272a;
+  --border-medium: #3f3f46;
+  --border-dark: #71717a;
+
+  --text-primary: #fafafa;
+  --text-secondary: #d4d4d8;
+  --text-muted: #a1a1aa;
+  --text-subtle: #71717a;
+
+  --accent-primary: #fafafa;
+  --accent-hover: #e4e4e7;
+  --accent-contrast: #18181b;
+
+  /* Priority Tokens (Dark Mode) */
+  --priority-low-bg: #1e293b;
+  --priority-low-text: #94a3b8;
+  --priority-low-border: #334155;
+
+  --priority-med-bg: #451a03;
+  --priority-med-text: #fde68a;
+  --priority-med-border: #78350f;
+
+  --priority-high-bg: #450a0a;
+  --priority-high-text: #fecaca;
+  --priority-high-border: #7f1d1d;
+
+  /* Category Tokens (Dark Mode) */
+  --cat-eng-bg: #1e1b4b;
+  --cat-eng-text: #a5b4fc;
+  --cat-eng-border: #312e81;
+
+  --cat-des-bg: #2e1065;
+  --cat-des-text: #c4b5fd;
+  --cat-des-border: #4c1d95;
+
+  --cat-pers-bg: #064e3b;
+  --cat-pers-text: #6ee7b7;
+  --cat-pers-border: #047857;
+
+  --cat-gen-bg: #27272a;
+  --cat-gen-text: #d4d4d8;
+  --cat-gen-border: #3f3f46;
+
+  /* Status Tokens */
+  --status-success-bg: #052e16;
+  --status-success-text: #86efac;
+  --status-success-border: #14532d;
+
+  --status-danger-bg: #450a0a;
+  --status-danger-text: #fca5a5;
+  --status-danger-border: #7f1d1d;
+
+  /* Shadows */
+  --shadow-subtle: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 4px 12px 0 rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -75,6 +163,7 @@ body {
   display: flex;
   justify-content: center;
   padding: 32px 16px 64px;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 #root {
