@@ -206,6 +206,8 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
   // Normalize action names
   if (action === 'complete' || action === 'toggle' || action === 'COMPLETE_TASK') {
     action = 'COMPLETE_TASK'
+  } else if (action === 'bulk_delete' || action === 'BULK_DELETE_TASK' || action === 'BULK_DELETE') {
+    action = 'BULK_DELETE_TASK'
   } else if (action === 'delete' || action === 'DELETE_TASK') {
     action = 'DELETE_TASK'
   } else if (action === 'ADD_TASK' || action === 'CREATE_TASK' || action === 'create') {
@@ -215,10 +217,11 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
   }
 
   const targetTaskId = result.target_task_id || result.targetId || null
+  const targetTaskIds = Array.isArray(result.target_task_ids) ? result.target_task_ids : []
   let tasks = []
 
   // If action is complete or delete, never produce new task skeletons
-  if (action !== 'COMPLETE_TASK' && action !== 'DELETE_TASK') {
+  if (action !== 'COMPLETE_TASK' && action !== 'DELETE_TASK' && action !== 'BULK_DELETE_TASK') {
     if (Array.isArray(result.tasks) && result.tasks.length > 0) {
       action = 'CREATE_TASKS'
       tasks = result.tasks.map((t) => {
@@ -305,6 +308,7 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
   return {
     action,
     target_task_id: targetTaskId,
+    target_task_ids: targetTaskIds,
     tasks,
     title: result.title ? result.title.trim() : tasks[0]?.title || '',
     start_time: normalizeTimezoneISO(rawStartTime, offsetStr),

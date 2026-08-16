@@ -937,7 +937,38 @@ export default function App() {
         }
       }
 
-      // 1. Aksi HAPUS (DELETE_TASK)
+      // 1. Aksi HAPUS MASSAL (BULK_DELETE_TASK)
+      if (
+        action === 'BULK_DELETE_TASK' ||
+        action === 'BULK_DELETE' ||
+        (Array.isArray(result.target_task_ids) && result.target_task_ids.length > 0)
+      ) {
+        const idsToDelete =
+          Array.isArray(result.target_task_ids) && result.target_task_ids.length > 0
+            ? result.target_task_ids
+            : result.title
+            ? tasks.filter((t) => t.title.toLowerCase().includes(result.title.toLowerCase())).map((t) => t.id)
+            : []
+
+        if (idsToDelete.length > 0) {
+          for (const id of idsToDelete) {
+            await handleDeleteTask(id)
+          }
+          const reply = replyMsg || `Siap bro, ${idsToDelete.length} tugas berhasil dihapus sekaligus.`
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${reply}`)
+          showToast(`🤝 Partner: ${reply}`)
+          safeSpeakBack(reply)
+        } else {
+          const fallbackReply = replyMsg || 'Tidak ada tugas yang cocok untuk dihapus.'
+          setInterimVoiceText(`⚠️ ${fallbackReply}`)
+          showToast(`🤝 Partner: ${fallbackReply}`, 'info')
+          safeSpeakBack(fallbackReply)
+        }
+        return
+      }
+
+      // 2. Aksi HAPUS TUNGGAL (DELETE_TASK)
       if (action === 'DELETE_TASK' || action === 'DELETE') {
         const targetTask = targetId
           ? tasks.find((t) => t.id === targetId)

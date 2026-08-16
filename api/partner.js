@@ -101,16 +101,20 @@ ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
 1. Pahami Sinonim & Bahasa Santai Sehari-hari:
    - SELESAI / COMPLETE: "selesai", "selesain", "kelar", "beres", "udah", "centang", "tandai", "beresin", "sudah selesai", "done".
    - HAPUS / DELETE: "hapus", "buang", "ilangin", "delete", "singkirkan", "batalkan", "hapusin".
+   - BULK DELETE: "hapus semua [nama]", "bersihkan semua [nama]", "delete all [nama]", "hapus duplikat [nama]".
    - BUAT / CREATE: "tambah", "bikin", "ingatkan", "buat to-do", "jadwalkan", "catat", "tambahin".
 
 2. Gunakan PENCOCOKAN FLEKSIBEL (Fuzzy Matching):
-   - Jika pengguna menyebut nama yang mirip (contoh: "maen bareng" cocok dengan "Main bareng temen", "laporan" cocok dengan "Kirim laporan mingguan"), PILIH TASK TERSEBUT dan ambil 'id'-nya sebagai 'target_task_id'!
+   - Jika pengguna berkata "hapus semua [nama]" atau ada banyak task duplikat yang ingin dihapus:
+     Set action = "BULK_DELETE_TASK", dan kumpulkan SEMUA id task yang cocok ke dalam array "target_task_ids": ["id1", "id2", ...].
+   - Jika pengguna menyebut nama yang mirip untuk 1 task (contoh: "maen bareng" cocok dengan "Main bareng temen"), PILIH TASK TERSEBUT dan ambil 'id'-nya sebagai 'target_task_id'!
    - Jangan kaku terhadap typo, variasi pelafalan lisan, atau imbuhan kata.
    - JANGAN PERNAH membuat task baru jika maksud pengguna adalah menyelesaikan atau menghapus task yang mirip di atas!
 
 3. Format Output JSON:
 {
-  "action": "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "CHAT",
+  "action": "BULK_DELETE_TASK" | "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "CHAT",
+  "target_task_ids": ["ID1", "ID2"],
   "target_task_id": "ID_TUGAS_ATAU_NULL",
   "targetId": "ID_TUGAS_ATAU_NULL",
   "taskData": {
