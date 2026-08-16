@@ -612,7 +612,12 @@ export default function App() {
 
   // Delete Task
   const handleDeleteTask = useCallback(
-    async (task) => {
+    async (taskOrId) => {
+      const task =
+        typeof taskOrId === 'string' ? tasks.find((t) => t.id === taskOrId) : taskOrId
+
+      if (!task || !task.id) return
+
       const previousTasks = [...tasks]
       setTasks((prev) => prev.filter((t) => t.id !== task.id))
       setSelectedTaskIds((prev) => prev.filter((id) => id !== task.id))
@@ -901,17 +906,24 @@ export default function App() {
   // Centralized Partner Action Executor (Shared by Voice & Typed Fallback)
   const executePartnerAction = useCallback(
     async (result = {}, transcript = '') => {
-      const action = result.action || 'UNKNOWN'
+      if (!result) return
+      const action = (result.action || result.intent || 'UNKNOWN').toUpperCase()
+      const targetId = result.target_task_id || result.targetId
+      const replyMsg =
+        result.reply ||
+        result.confirmation_reply ||
+        result.reply_summary ||
+        ''
 
       // Defensive TTS Playback Helper
-      const safeSpeakBack = (replyText) => {
-        if (!replyText) return
+      const safeSpeakBack = (text) => {
+        if (!text) return
         if (typeof speakBack === 'function') {
-          speakBack(replyText)
+          speakBack(text)
         } else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
           try {
             window.speechSynthesis.cancel()
-            const utterance = new SpeechSynthesisUtterance(replyText)
+            const utterance = new SpeechSynthesisUtterance(text)
             utterance.lang = 'id-ID'
             window.speechSynthesis.speak(utterance)
           } catch {
@@ -920,67 +932,8 @@ export default function App() {
         }
       }
 
-      if (action === 'CREATE_TASKS' || (Array.isArray(result.tasks) && result.tasks.length > 0)) {
-        const taskList = result.tasks || []
-        setInterimVoiceText(`⚡ Memproses ${taskList.length} tugas terjadwal...`)
-
-        for (const t of taskList) {
-          await handleCreateTask({
-            title: t.title,
-            priority: (t.priority || 'Medium').toLowerCase(),
-            category: t.workspace || t.category || 'General',
-            due_date: t.scheduled_at || t.due_date,
-            duration_minutes: t.duration_minutes || 30
-          })
-        }
-
-        const replyMsg =
-          result.confirmation_reply ||
-          result.reply ||
-          result.reply_summary ||
-          (taskList.length === 1
-            ? `Siap bro, tugas "${taskList[0].title}" udah masuk kalender.`
-            : `Siap bro, ${taskList.length} tugas terjadwal udah masuk kalender.`)
-
-        sfx.playSuccess()
-        setInterimVoiceText(`✓ ${replyMsg}`)
-        showToast(`🤝 Partner: ${replyMsg}`)
-        safeSpeakBack(replyMsg)
-      } else if (
-        action === 'COMPLETE_TASK' ||
-        action === 'complete' ||
-        action === 'toggle'
-      ) {
-        const targetId = result.target_task_id || result.targetId
-        const targetTask = targetId
-          ? tasks.find((t) => t.id === targetId)
-          : result.title
-          ? tasks.find((t) => t.title.toLowerCase().includes(result.title.toLowerCase()))
-          : null
-
-        if (targetTask) {
-          await handleToggleTask({ ...targetTask, completed: false })
-          const replyMsg =
-            result.confirmation_reply ||
-            result.reply ||
-            result.reply_summary ||
-            `Siap bro, tugas "${targetTask.title}" udah ditandai selesai!`
-          sfx.playSuccess()
-          setInterimVoiceText(`✓ ${replyMsg}`)
-          showToast(`🤝 Partner: ${replyMsg}`)
-          safeSpeakBack(replyMsg)
-        } else {
-          const fallbackReply =
-            result.confirmation_reply ||
-            result.reply ||
-            result.reply_summary ||
-            'Tugas yang dimaksud tidak ditemukan di daftar aktif.'
-          setInterimVoiceText(`⚠️ ${fallbackReply}`)
-          showToast(`🤝 Partner: ${fallbackReply}`, 'info')
-          safeSpeakBack(fallbackReply)
-        }
-      } else if (action === 'DELETE_TASK' || action === 'delete') {
-        const targetId = result.target_task_id || result.targetId
+      // 1. Aksi HAPUS (DELETE_TASK)
+      if (action === 'DELETE_TASK' || action === 'DELETE') {
         const targetTask = targetId
           ? tasks.find((t) => t.id === targetId)
           : result.title
@@ -989,44 +942,96 @@ export default function App() {
 
         if (targetTask) {
           await handleDeleteTask(targetTask)
-          const replyMsg =
-            result.confirmation_reply ||
-            result.reply ||
-            result.reply_summary ||
-            `Siap bro, tugas "${targetTask.title}" berhasil dihapus.`
+          const reply = replyMsg || `Siap bro, tugas "${targetTask.title}" berhasil dihapus.`
           sfx.playSuccess()
-          setInterimVoiceText(`✓ ${replyMsg}`)
-          showToast(`🤝 Partner: ${replyMsg}`)
-          safeSpeakBack(replyMsg)
+          setInterimVoiceText(`✓ ${reply}`)
+          showToast(`🤝 Partner: ${reply}`)
+          safeSpeakBack(reply)
         } else {
-          const fallbackReply =
-            result.confirmation_reply ||
-            result.reply ||
-            result.reply_summary ||
-            'Tugas yang ingin dihapus tidak ditemukan.'
+          const fallbackReply = replyMsg || 'Tugas yang ingin dihapus tidak ditemukan.'
           setInterimVoiceText(`⚠️ ${fallbackReply}`)
           showToast(`🤝 Partner: ${fallbackReply}`, 'info')
           safeSpeakBack(fallbackReply)
         }
-      } else if (action === 'CREATE_TASK') {
-        setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
-        await handleCreateTask({
-          title: result.title,
-          priority: (result.priority || 'Medium').toLowerCase(),
-          category: result.workspace || result.category || 'General',
-          due_date: result.scheduled_at || result.start_time || result.due_date,
-          duration_minutes: 30
-        })
-        const replyMsg =
-          result.confirmation_reply ||
-          result.reply ||
-          result.reply_summary ||
-          `Siap bro, tugas "${result.title}" berhasil dibuat.`
-        sfx.playSuccess()
-        setInterimVoiceText(`✓ ${replyMsg}`)
-        showToast(`🤝 Partner: ${replyMsg}`)
-        safeSpeakBack(replyMsg)
-      } else if (action === 'SCHEDULE_EVENT') {
+        return
+      }
+
+      // 2. Aksi SELESAI / TOGGLE (COMPLETE_TASK)
+      if (
+        action === 'COMPLETE_TASK' ||
+        action === 'COMPLETE' ||
+        action === 'TOGGLE'
+      ) {
+        const targetTask = targetId
+          ? tasks.find((t) => t.id === targetId)
+          : result.title
+          ? tasks.find((t) => t.title.toLowerCase().includes(result.title.toLowerCase()))
+          : null
+
+        if (targetTask) {
+          await handleToggleTask(targetTask)
+          const reply = replyMsg || `Siap bro, tugas "${targetTask.title}" sudah ditandai selesai!`
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${reply}`)
+          showToast(`🤝 Partner: ${reply}`)
+          safeSpeakBack(reply)
+        } else {
+          const fallbackReply = replyMsg || 'Tugas yang dimaksud tidak ditemukan di daftar aktif.'
+          setInterimVoiceText(`⚠️ ${fallbackReply}`)
+          showToast(`🤝 Partner: ${fallbackReply}`, 'info')
+          safeSpeakBack(fallbackReply)
+        }
+        return
+      }
+
+      // 3. Aksi BUAT BARU (Hanya jika benar-benar CREATE / CREATE_TASKS)
+      if (action === 'CREATE_TASKS' || action === 'CREATE_TASK' || action === 'CREATE') {
+        if (Array.isArray(result.tasks) && result.tasks.length > 0) {
+          const taskList = result.tasks
+          setInterimVoiceText(`⚡ Memproses ${taskList.length} tugas terjadwal...`)
+
+          for (const t of taskList) {
+            await handleCreateTask({
+              title: t.title,
+              priority: (t.priority || 'Medium').toLowerCase(),
+              category: t.workspace || t.category || 'General',
+              due_date: t.scheduled_at || t.due_date,
+              duration_minutes: t.duration_minutes || 30
+            })
+          }
+
+          const reply =
+            replyMsg ||
+            (taskList.length === 1
+              ? `Siap bro, tugas "${taskList[0].title}" udah masuk kalender.`
+              : `Siap bro, ${taskList.length} tugas terjadwal udah masuk kalender.`)
+
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${reply}`)
+          showToast(`🤝 Partner: ${reply}`)
+          safeSpeakBack(reply)
+          return
+        } else if (result.title || result.taskData) {
+          const taskPayload = result.taskData || {
+            title: result.title,
+            priority: (result.priority || 'Medium').toLowerCase(),
+            category: result.workspace || result.category || 'General',
+            due_date: result.scheduled_at || result.start_time || result.due_date,
+            duration_minutes: 30
+          }
+          setInterimVoiceText(`⚡ Executing: "${taskPayload.title}"...`)
+          await handleCreateTask(taskPayload)
+          const reply = replyMsg || `Siap bro, tugas "${taskPayload.title}" berhasil dibuat.`
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${reply}`)
+          showToast(`🤝 Partner: ${reply}`)
+          safeSpeakBack(reply)
+          return
+        }
+      }
+
+      // 4. Aksi SCHEDULE_EVENT
+      if (action === 'SCHEDULE_EVENT') {
         setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
         const startTime = result.scheduled_at || result.start_time || new Date().toISOString()
         const endTime =
@@ -1043,17 +1048,17 @@ export default function App() {
           isCompleted: false,
           userId: session?.user?.id
         })
-        const replyMsg =
-          result.confirmation_reply ||
-          result.reply ||
-          result.reply_summary ||
-          `Siap bro, jadwal "${result.title}" berhasil diatur.`
+        const reply = replyMsg || `Siap bro, jadwal "${result.title}" berhasil diatur.`
         sfx.playSuccess()
         setMainTab('calendar')
-        setInterimVoiceText(`✓ ${replyMsg}`)
-        showToast(`🤝 Partner: ${replyMsg}`)
-        safeSpeakBack(replyMsg)
-      } else if (action === 'NAVIGATE') {
+        setInterimVoiceText(`✓ ${reply}`)
+        showToast(`🤝 Partner: ${reply}`)
+        safeSpeakBack(reply)
+        return
+      }
+
+      // 5. Aksi NAVIGATE
+      if (action === 'NAVIGATE') {
         sfx.playSuccess()
         const targetView = result.target_view || 'tasks'
         if (targetView === 'focus') {
@@ -1061,36 +1066,32 @@ export default function App() {
         } else {
           setMainTab(targetView)
         }
-        const replyMsg =
-          result.confirmation_reply ||
-          result.reply ||
-          result.reply_summary ||
-          'Siap bro, beralih tampilan.'
-        setInterimVoiceText(`✓ ${replyMsg}`)
-        showToast(`🤝 Partner: ${replyMsg}`)
-        safeSpeakBack(replyMsg)
-      } else if (action === 'CLEAR_COMPLETED') {
+        const reply = replyMsg || 'Siap bro, beralih tampilan.'
+        setInterimVoiceText(`✓ ${reply}`)
+        showToast(`🤝 Partner: ${reply}`)
+        safeSpeakBack(reply)
+        return
+      }
+
+      // 6. Aksi CLEAR_COMPLETED
+      if (action === 'CLEAR_COMPLETED') {
         setInterimVoiceText('⚡ Purging completed tasks...')
         await handleClearCompleted()
-        const replyMsg =
-          result.confirmation_reply ||
-          result.reply ||
-          result.reply_summary ||
-          'Siap bro, tugas selesai telah dibersihkan.'
+        const reply = replyMsg || 'Siap bro, tugas selesai telah dibersihkan.'
         sfx.playSuccess()
-        setInterimVoiceText(`✓ ${replyMsg}`)
-        showToast(`🤝 Partner: ${replyMsg}`)
-        safeSpeakBack(replyMsg)
-      } else {
-        const fallbackMsg =
-          result.confirmation_reply ||
-          result.reply ||
-          result.reply_summary ||
-          (transcript ? `Perintah "${transcript}" tidak dikenali.` : 'Suara tidak terdeteksi.')
-        setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
-        showToast(`🤝 Partner: ${fallbackMsg}`, 'info')
-        safeSpeakBack(fallbackMsg)
+        setInterimVoiceText(`✓ ${reply}`)
+        showToast(`🤝 Partner: ${reply}`)
+        safeSpeakBack(reply)
+        return
       }
+
+      // Fallback
+      const fallbackMsg =
+        replyMsg ||
+        (transcript ? `Perintah "${transcript}" tidak dikenali.` : 'Suara tidak terdeteksi.')
+      setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
+      showToast(`🤝 Partner: ${fallbackMsg}`, 'info')
+      safeSpeakBack(fallbackMsg)
     },
     [session, tasks, handleCreateTask, handleToggleTask, handleDeleteTask, handleClearCompleted, handleOpenFocusSession, showToast]
   )

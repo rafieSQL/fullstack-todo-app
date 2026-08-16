@@ -62,19 +62,28 @@ export default async function handler(req, res) {
       }
     }
 
-    const { transcript, clientTime, timezone, activeTasks, tasks: incomingTasks, existingTasks } = body || {};
+    const {
+      message,
+      transcript: incomingTranscript,
+      clientTime,
+      timezone,
+      tasks: incomingTasks,
+      activeTasks,
+      existingTasks
+    } = body || {};
 
-    if (!transcript || !transcript.trim()) {
-      return res.status(400).json({ error: 'Transcript is required' });
+    const rawTranscript = (message || incomingTranscript || '').trim();
+
+    if (!rawTranscript) {
+      return res.status(400).json({ error: 'Message or transcript is required' });
     }
 
-    const cleanTranscript = transcript.trim();
     const userTimezone = timezone || 'Asia/Jakarta';
     const refTime = clientTime || new Date().toISOString();
 
-    const rawTasks = activeTasks || incomingTasks || existingTasks || [];
+    const rawTasks = incomingTasks || activeTasks || existingTasks || [];
     const tasksCleanList = Array.isArray(rawTasks)
-      ? rawTasks.slice(0, 15).map((t) => ({
+      ? rawTasks.slice(0, 20).map((t) => ({
           id: t.id || t._id,
           title: t.title,
           completed: Boolean(t.completed)
@@ -84,65 +93,32 @@ export default async function handler(req, res) {
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
-    const systemInstruction = `Kamu adalah AI pengelola to-do list & kalender.
-WAKTU SEKARANG: ${refTime} (${userTimezone})
-
-DAFTAR TUGAS AKTIF SAAT INI:
+    const systemInstruction = `Daftar Tugas Pengguna Saat Ini:
 ${JSON.stringify(tasksCleanList, null, 2)}
 
-ATURAN WAJIB INTENT RECOGNITION:
-1. Jika pengguna menyebut kata "ubah", "selesaikan", "sudah", "beres", "done", "centang", "kelar", atau "tandai" diikuti nama tugas yang MIRIP dengan daftar di atas:
-   - JANGAN PERNAH membuat task baru (DILARANG KERAS aksi CREATE / ADD / CREATE_TASKS)!
-   - Cari item dengan nama paling cocok dari daftar di atas, ambil properti 'id'-nya.
-   - Kembalikan response JSON:
-   {
-     "action": "COMPLETE_TASK",
-     "target_task_id": "<ID_PERSIS_DARI_LIST>",
-     "targetId": "<ID_PERSIS_DARI_LIST>",
-     "reply": "Tugas '<NAMA_TUGAS>' sudah ditandai selesai!",
-     "confirmation_reply": "Tugas '<NAMA_TUGAS>' sudah ditandai selesai!"
-   }
+WAKTU SEKARANG: ${refTime} (${userTimezone})
 
-2. Jika pengguna menyebut kata "hapus", "delete", atau "batalkan" diikuti nama tugas dari daftar di atas:
-   - JANGAN membuat task baru!
-   - Ambil properti 'id'-nya dan kembalikan action "DELETE_TASK":
-   {
-     "action": "DELETE_TASK",
-     "target_task_id": "<ID_PERSIS_DARI_LIST>",
-     "targetId": "<ID_PERSIS_DARI_LIST>",
-     "reply": "Tugas '<NAMA_TUGAS>' berhasil dihapus.",
-     "confirmation_reply": "Tugas '<NAMA_TUGAS>' berhasil dihapus."
-   }
+ATURAN UTAMA:
+- Jika user mengatakan "hapus", "buang", "delete", "batalkan", atau "hilangkan [nama tugas]":
+  Action = "DELETE_TASK", target_task_id = <ID tugas yang cocok dari daftar di atas>. JANGAN PERNAH CREATE!
+- Jika user mengatakan "selesai", "sudah", "beres", "done", "kelar", "centang", atau "tandai [nama tugas]":
+  Action = "COMPLETE_TASK", target_task_id = <ID tugas yang cocok dari daftar di atas>. JANGAN PERNAH CREATE!
+- HANYA gunakan action "CREATE_TASK" atau "CREATE_TASKS" jika user ingin mencatat to-do baru yang belum ada.
 
-3. HANYA gunakan aksi "CREATE_TASKS" jika pengguna secara eksplisit ingin menambahkan hal/tugas baru yang belum ada di daftar di atas.
-
-Return STRICT JSON matching this schema:
+Format JSON Output:
 {
-  "action": "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
-  "target_task_id": "string or null",
-  "targetId": "string or null",
-  "title": "string",
+  "action": "DELETE_TASK" | "COMPLETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "QUERY",
+  "target_task_id": "string id atau null",
+  "targetId": "string id atau null",
+  "title": "Judul tugas jika create baru",
   "workspace": "General" | "Engineering" | "Design" | "Personal",
   "category": "General" | "Engineering" | "Design" | "Personal",
   "priority": "Low" | "Medium" | "High",
   "scheduled_at": "ISO-8601 string or null",
   "due_date": "ISO-8601 string or null",
   "duration_minutes": 30,
-  "is_ambiguous": false,
-  "reply": "Balasan ramah Partner",
-  "confirmation_reply": "Balasan ramah Partner",
-  "reply_summary": "Balasan ramah Partner",
-  "tasks": [
-    {
-      "title": "string",
-      "workspace": "General" | "Engineering" | "Design" | "Personal",
-      "category": "General" | "Engineering" | "Design" | "Personal",
-      "priority": "Low" | "Medium" | "High",
-      "scheduled_at": "ISO-8601 string",
-      "due_date": "ISO-8601 string",
-      "duration_minutes": 30
-    }
-  ]
+  "reply": "Pesan konfirmasi singkat khas Partner",
+  "confirmation_reply": "Pesan konfirmasi singkat khas Partner"
 }`;
 
     // Option A: Gemini API (if GEMINI_API_KEY is available)
@@ -154,7 +130,7 @@ Return STRICT JSON matching this schema:
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: cleanTranscript }] }],
+              contents: [{ role: 'user', parts: [{ text: rawTranscript }] }],
               systemInstruction: { parts: [{ text: systemInstruction }] },
               generationConfig: {
                 responseMimeType: 'application/json',
@@ -189,7 +165,7 @@ Return STRICT JSON matching this schema:
           model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: systemInstruction },
-            { role: 'user', content: `User Command: "${cleanTranscript}"` }
+            { role: 'user', content: `User Command: "${rawTranscript}"` }
           ],
           temperature: 0.1,
           response_format: { type: 'json_object' }

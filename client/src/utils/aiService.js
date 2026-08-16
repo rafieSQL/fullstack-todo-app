@@ -204,21 +204,24 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
   const defaultDue = getDefaultDueDate(refDate, offsetStr)
 
   // Normalize action names
-  if (action === 'ADD_TASK' || action === 'CREATE_TASK') {
+  if (action === 'complete' || action === 'toggle' || action === 'COMPLETE_TASK') {
+    action = 'COMPLETE_TASK'
+  } else if (action === 'delete' || action === 'DELETE_TASK') {
+    action = 'DELETE_TASK'
+  } else if (action === 'ADD_TASK' || action === 'CREATE_TASK' || action === 'create') {
     action = 'CREATE_TASKS'
-  }
-  if (action === 'SCHEDULE_TASK') {
+  } else if (action === 'SCHEDULE_TASK') {
     action = 'SCHEDULE_EVENT'
   }
 
-  const targetTaskId = result.target_task_id || null
+  const targetTaskId = result.target_task_id || result.targetId || null
   let tasks = []
 
-  if (Array.isArray(result.tasks) && result.tasks.length > 0) {
-    if (action !== 'COMPLETE_TASK' && action !== 'DELETE_TASK') {
+  // If action is complete or delete, never produce new task skeletons
+  if (action !== 'COMPLETE_TASK' && action !== 'DELETE_TASK') {
+    if (Array.isArray(result.tasks) && result.tasks.length > 0) {
       action = 'CREATE_TASKS'
-    }
-    tasks = result.tasks.map((t) => {
+      tasks = result.tasks.map((t) => {
       const cleanTitle = (t.title || '').trim() || 'Tugas Baru'
       const catVal = t.workspace || t.category || 'General'
       const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(catVal))
@@ -265,6 +268,7 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
       }
     ]
   }
+}
 
   let targetView = result.target_view
   if (action === 'NAVIGATE' && !targetView) {
@@ -334,9 +338,10 @@ export async function parseCommandWithAI(
   const offsetStr = getLocalTimezoneOffsetString(now)
   const localReferenceISO = formatToLocalISOString(now, offsetStr)
 
-  const activeContextTasks = (activeTasks || []).slice(0, 15).map((t) => ({
-    id: t.id,
+  const cleanTasksList = (activeTasks || []).slice(0, 20).map((t) => ({
+    id: t.id || t._id,
     title: t.title,
+    completed: Boolean(t.completed),
     workspace: t.category || t.workspace || 'General',
     time: t.due_date || t.scheduled_at || 'tanpa jadwal'
   }))
@@ -349,10 +354,12 @@ export async function parseCommandWithAI(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          message: transcript,
           transcript,
           clientTime: clientCurrentTime,
           timezone: userTimezone,
-          activeTasks: activeContextTasks
+          tasks: cleanTasksList,
+          activeTasks: cleanTasksList
         })
       },
       7000
@@ -383,28 +390,38 @@ export async function parseCommandWithAI(
   const dayOfWeekEn = dayNamesEn[now.getDay()]
   const dayOfWeekId = dayNamesId[now.getDay()]
 
-  const systemPrompt = `Kamu adalah AI Partner di Task Registry & Calendar.
+  const systemPrompt = `Kamu adalah AI pengelola to-do list & kalender.
 WAKTU SEKARANG (User): ${localReferenceISO} (${dayOfWeekEn} / ${dayOfWeekId}).
 TIMEZONE: ${userTimezone} (Offset: ${offsetStr}).
 
-DAFTAR TUGAS AKTIF SAAT INI (Konteks Memory):
+DAFTAR TUGAS AKTIF SAAT INI:
 ${JSON.stringify(activeContextTasks, null, 2)}
 
-ATURAN COCOK TUGAS & AKSI:
-1. Jika user ingin menyelesaikan tugas (contoh: "selesaikan tugas laporan", "tandai meeting tadi kelar", "sudah selesai"):
-   Cari task yang paling relevan dari DAFTAR TUGAS AKTIF, masukkan ID-nya ke 'target_task_id' dan pilih action 'COMPLETE_TASK'.
-2. Jika user ingin menghapus/membatalkan tugas (contoh: "hapus tugas laporan", "batalkan jadwal"):
-   Cari task yang cocok dari DAFTAR TUGAS AKTIF, masukkan ID-nya ke 'target_task_id' dan pilih action 'DELETE_TASK'.
-3. Jika user ingin membuat tugas baru, pilih action 'CREATE_TASKS'.
+ATURAN WAJIB INTENT RECOGNITION:
+1. Jika user menyebut kata "ubah", "selesaikan", "sudah", "beres", "done", "centang", "kelar", atau "tandai" diikuti nama tugas yang MIRIP dengan daftar di atas:
+   - JANGAN PERNAH membuat task baru (DILARANG KERAS aksi CREATE / ADD / CREATE_TASKS)!
+   - Cari task paling cocok dari daftar di atas, ambil properti 'id'-nya.
+   - Kembalikan response JSON:
+   {
+     "action": "COMPLETE_TASK",
+     "target_task_id": "<ID_PERSIS_DARI_LIST>",
+     "targetId": "<ID_PERSIS_DARI_LIST>",
+     "reply": "Tugas '<NAMA_TUGAS>' sudah ditandai selesai!",
+     "confirmation_reply": "Tugas '<NAMA_TUGAS>' sudah ditandai selesai!"
+   }
+2. Jika user menyebut kata "hapus", "delete", atau "batalkan" diikuti nama tugas dari daftar di atas:
+   - JANGAN membuat task baru!
+   - Masukkan ID-nya ke 'target_task_id' dan pilih action 'DELETE_TASK'.
+3. HANYA gunakan aksi 'CREATE_TASKS' jika user secara eksplisit ingin menambahkan tugas/jadwal baru yang belum ada di daftar.
 4. "due_date" / "scheduled_at" harus berupa string ISO dengan offset "${offsetStr}" (contoh: YYYY-MM-DDTHH:MM:00${offsetStr}).
-5. "confirmation_reply": Balasan suara ramah & natural khas Partner (contoh: "Siap bro, tugas laporan udah ditandai selesai!").
-6. "is_ambiguous": Set true jika perintah ambigu/kurang jelas, set false jika jelas.
+5. "confirmation_reply" & "reply": Balasan suara ramah & natural khas Partner.
 
 Return STRICT JSON ONLY matching this schema:
 {
-  "action": "CREATE_TASKS" | "COMPLETE_TASK" | "DELETE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
-  "target_task_id": "ID task dari DAFTAR TUGAS AKTIF jika COMPLETE_TASK atau DELETE_TASK, selain itu null",
-  "title": "Judul ringkas tugas utama",
+  "action": "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "target_task_id": "string or null",
+  "targetId": "string or null",
+  "title": "string",
   "workspace": "General" | "Engineering" | "Design" | "Personal",
   "category": "General" | "Engineering" | "Design" | "Personal",
   "priority": "High" | "Medium" | "Low",
@@ -412,11 +429,12 @@ Return STRICT JSON ONLY matching this schema:
   "due_date": "YYYY-MM-DDTHH:MM:00${offsetStr}",
   "duration_minutes": 30,
   "is_ambiguous": false,
-  "confirmation_reply": "Siap bro, tugas udah masuk kalender.",
-  "reply_summary": "Siap bro, tugas udah masuk kalender.",
+  "reply": "Balasan ramah Partner",
+  "confirmation_reply": "Balasan ramah Partner",
+  "reply_summary": "Balasan ramah Partner",
   "tasks": [
     {
-      "title": "Judul tugas",
+      "title": "string",
       "workspace": "General" | "Engineering" | "Design" | "Personal",
       "category": "General" | "Engineering" | "Design" | "Personal",
       "priority": "High" | "Medium" | "Low",
