@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   getCalendarEvents,
   createCalendarEvent,
@@ -16,6 +16,7 @@ import {
   formatMonthYear,
   formatHour,
   formatTimeShort,
+  getDurationMinutes,
   getEventPosition,
   morphSchedule
 } from '../utils/chronosEngine.js'
@@ -28,6 +29,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i)
 export default function ChronosCalendar({
   tasks = [],
   onStartFocusSession,
+  onToggleTask,
   user = null,
   showToast = () => {}
 }) {
@@ -37,10 +39,19 @@ export default function ChronosCalendar({
   const [events, setEvents] = useState([])
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
+  const [isSidebarDragOver, setIsSidebarDragOver] = useState(false)
+
+  // Overdue banner dismissed state
+  const [dismissedOverdueIds, setDismissedOverdueIds] = useState(() => new Set())
 
   // Drag-and-drop state
   const [draggedTask, setDraggedTask] = useState(null)
+  const [draggedEvent, setDraggedEvent] = useState(null)
   const [dragOverSlot, setDragOverSlot] = useState(null)
+
+  // Resizing state
+  const [resizingEvent, setResizingEvent] = useState(null)
+  const resizeStartRef = useRef({ startY: 0, startDuration: 60, event: null })
 
   // Modal State
   const [modalState, setModalState] = useState({
@@ -48,6 +59,13 @@ export default function ChronosCalendar({
     mode: 'create',
     eventData: null
   })
+
+  // Live timer tick for overdue checking (updates every 30s)
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(timer)
+  }, [])
 
   // Date Calculations
   const weekDays = useMemo(() => getWeekDays(currentDate), [currentDate])
@@ -113,7 +131,7 @@ export default function ChronosCalendar({
     }
   }, [loadEvents])
 
-  // Unassigned Backlog Tasks (filtered by search query)
+  // Unassigned Backlog Tasks
   const unassignedTasks = useMemo(() => {
     const scheduledTaskIds = new Set(events.map((e) => e.task_id).filter(Boolean))
     let list = tasks.filter((t) => !t.completed && !scheduledTaskIds.has(t.id))
@@ -127,6 +145,18 @@ export default function ChronosCalendar({
     }
     return list
   }, [tasks, events, sidebarSearch])
+
+  // Overdue Events Check
+  const activeOverdueEvents = useMemo(() => {
+    return events.filter(
+      (ev) =>
+        !ev.is_completed &&
+        new Date(now).getTime() > new Date(ev.end_time).getTime() &&
+        !dismissedOverdueIds.has(ev.id)
+    )
+  }, [events, now, dismissedOverdueIds])
+
+  const topOverdueEvent = activeOverdueEvents[0] || null
 
   // Date Navigation Handlers
   const handlePrev = () => {
@@ -179,11 +209,12 @@ export default function ChronosCalendar({
     })
   }
 
-  // Handle Drag from Sidebar & Drop on Calendar Slot
+  // Handle Dragging from Sidebar
   const handleTaskDragStart = (e, task) => {
     setDraggedTask(task)
+    setDraggedEvent(null)
     try {
-      e.dataTransfer.setData('application/json', JSON.stringify(task))
+      e.dataTransfer.setData('application/json', JSON.stringify({ type: 'task', data: task }))
       e.dataTransfer.setData('text/plain', task.id || '')
       e.dataTransfer.effectAllowed = 'copyMove'
     } catch {
@@ -191,9 +222,24 @@ export default function ChronosCalendar({
     }
   }
 
+  // Handle Dragging Scheduled Event on Grid
+  const handleEventDragStart = (e, event) => {
+    e.stopPropagation()
+    setDraggedEvent(event)
+    setDraggedTask(null)
+    try {
+      e.dataTransfer.setData('application/json', JSON.stringify({ type: 'event', data: event }))
+      e.dataTransfer.setData('text/plain', event.id || '')
+      e.dataTransfer.effectAllowed = 'move'
+    } catch {
+      // fallback to state
+    }
+  }
+
+  // Slot Drag Over & Leave
   const handleSlotDragOver = (e, slotKey) => {
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
+    e.dataTransfer.dropEffect = 'move'
     setDragOverSlot(slotKey)
   }
 
@@ -201,65 +247,104 @@ export default function ChronosCalendar({
     setDragOverSlot(null)
   }
 
+  // Drop on Slot (Schedule Task OR Reschedule Event)
   const handleSlotDrop = async (e, date, hour) => {
     e.preventDefault()
     e.stopPropagation()
     setDragOverSlot(null)
 
-    // Resolve task payload from dataTransfer or memory
-    let taskToSchedule = draggedTask
-    if (!taskToSchedule) {
-      try {
-        const jsonStr = e.dataTransfer.getData('application/json')
-        if (jsonStr) taskToSchedule = JSON.parse(jsonStr)
-      } catch {
-        // ignore
-      }
+    // Resolve drag payload
+    let payload = null
+    try {
+      const jsonStr = e.dataTransfer.getData('application/json')
+      if (jsonStr) payload = JSON.parse(jsonStr)
+    } catch {
+      // ignore
     }
 
-    if (!taskToSchedule) return
+    const isDroppingEvent = payload?.type === 'event' || Boolean(draggedEvent)
+    const activeItem = isDroppingEvent ? (payload?.data || draggedEvent) : (payload?.data || draggedTask)
+
     setDraggedTask(null)
+    setDraggedEvent(null)
+    if (!activeItem) return
 
     const start = new Date(date)
     start.setHours(hour, 0, 0, 0)
+
+    if (isDroppingEvent) {
+      // Reschedule existing event to new time
+      const origStart = new Date(activeItem.start_time).getTime()
+      const origEnd = new Date(activeItem.end_time).getTime()
+      const durationMs = Math.max(1800000, origEnd - origStart)
+      const end = new Date(start.getTime() + durationMs)
+
+      const updatedEvent = {
+        ...activeItem,
+        start_time: start.toISOString(),
+        end_time: end.toISOString()
+      }
+
+      // Optimistic state
+      const preList = events.map((ev) => (ev.id === activeItem.id ? updatedEvent : ev))
+      const { morphedEvents: optMorphed, changedEvents } = morphSchedule(preList, autoMorphEnabled)
+      setEvents(optMorphed)
+      showToast(`Rescheduled "${activeItem.title}" to ${formatHour(hour)}`)
+
+      try {
+        await updateCalendarEvent(activeItem.id, {
+          start_time: updatedEvent.start_time,
+          end_time: updatedEvent.end_time
+        })
+        if (changedEvents.length > 0) {
+          for (const ev of changedEvents) {
+            await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+          }
+          showToast(`⚡ Auto-Morphed: Shifted ${changedEvents.length} events to prevent overlap.`)
+        }
+      } catch (err) {
+        console.error('Failed to reschedule event:', err)
+        loadEvents()
+        showToast('Failed to reschedule event.', 'error')
+      }
+      return
+    }
+
+    // Schedule task from backlog
     const end = new Date(start)
     end.setHours(hour + 1, 0, 0, 0)
 
-    // Optimistic temporary event
-    const tempId = `temp-${taskToSchedule.id}-${start.getTime()}`
+    const tempId = `temp-${activeItem.id}-${start.getTime()}`
     const optimisticEvent = {
       id: tempId,
-      task_id: taskToSchedule.id,
-      title: taskToSchedule.title,
+      task_id: activeItem.id,
+      title: activeItem.title,
       start_time: start.toISOString(),
       end_time: end.toISOString(),
-      category: taskToSchedule.category || 'General',
-      priority: taskToSchedule.priority || 'medium',
+      category: activeItem.category || 'General',
+      priority: activeItem.priority || 'medium',
       auto_morph: true,
       is_completed: false,
       created_at: start.toISOString()
     }
 
-    // Immediately render on grid with Auto-Morph
     const preList = [...events, optimisticEvent]
     const { morphedEvents: optMorphed } = morphSchedule(preList, autoMorphEnabled)
     setEvents(optMorphed)
-
-    showToast(`Scheduled "${taskToSchedule.title}" at ${formatHour(hour)}`)
+    showToast(`Scheduled "${activeItem.title}" at ${formatHour(hour)}`)
 
     try {
       const created = await createCalendarEvent({
-        title: taskToSchedule.title,
+        title: activeItem.title,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
-        taskId: taskToSchedule.id,
-        category: taskToSchedule.category || 'General',
-        priority: taskToSchedule.priority || 'medium',
+        taskId: activeItem.id,
+        category: activeItem.category || 'General',
+        priority: activeItem.priority || 'medium',
         autoMorph: true,
         userId: user?.id
       })
 
-      // Replace optimistic temp event with saved record
       const updatedList = events.map((ev) => (ev.id === tempId ? created : ev))
       if (!updatedList.some((ev) => ev.id === created.id)) {
         updatedList.push(created)
@@ -269,11 +354,10 @@ export default function ChronosCalendar({
 
       logActivity({
         type: 'create',
-        message: `Scheduled task on calendar: "${taskToSchedule.title}"`,
+        message: `Scheduled task on calendar: "${activeItem.title}"`,
         userId: user?.id
       })
 
-      // Persist any auto-morphed downstream shifts
       if (changedEvents.length > 0) {
         for (const ev of changedEvents) {
           if (!ev.id.startsWith('temp-')) {
@@ -284,11 +368,165 @@ export default function ChronosCalendar({
       }
     } catch (err) {
       console.error('Failed to drop task onto calendar:', err)
-      // Roll back optimistic insertion on failure
       setEvents((prev) => prev.filter((ev) => ev.id !== tempId))
       showToast(err.message || 'Failed to schedule task.', 'error')
     }
   }
+
+  // Sidebar Drag Over & Drop to Unschedule
+  const handleSidebarDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setIsSidebarDragOver(true)
+  }
+
+  const handleSidebarDragLeave = () => {
+    setIsSidebarDragOver(false)
+  }
+
+  const handleSidebarDrop = async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsSidebarDragOver(false)
+
+    let payload = null
+    try {
+      const jsonStr = e.dataTransfer.getData('application/json')
+      if (jsonStr) payload = JSON.parse(jsonStr)
+    } catch {
+      // ignore
+    }
+
+    const eventToUnschedule = payload?.type === 'event' ? payload.data : draggedEvent
+    setDraggedEvent(null)
+
+    if (eventToUnschedule) {
+      await handleUnscheduleEvent(eventToUnschedule)
+    }
+  }
+
+  // Unschedule Event (Delete from calendar, return task to backlog)
+  const handleUnscheduleEvent = async (event) => {
+    try {
+      setEvents((prev) => prev.filter((e) => e.id !== event.id))
+      await deleteCalendarEvent(event.id)
+      setModalState({ isOpen: false, mode: 'create', eventData: null })
+      showToast(`Unscheduled "${event.title}" back to backlog.`)
+      logActivity({
+        type: 'delete',
+        message: `Unscheduled event from calendar: "${event.title}"`,
+        userId: user?.id
+      })
+    } catch (err) {
+      console.error('Failed to unschedule event:', err)
+      loadEvents()
+      showToast('Failed to unschedule event.', 'error')
+    }
+  }
+
+  // Extend Deadline / Duration (+30m)
+  const handleExtendEventDeadline = async (event, minutes = 30) => {
+    const currentEnd = new Date(event.end_time).getTime()
+    const newEnd = new Date(currentEnd + minutes * 60000).toISOString()
+
+    const updatedEvent = { ...event, end_time: newEnd }
+    const preList = events.map((e) => (e.id === event.id ? updatedEvent : e))
+    const { morphedEvents, changedEvents } = morphSchedule(preList, autoMorphEnabled)
+    setEvents(morphedEvents)
+
+    showToast(`Extended "${event.title}" by +${minutes}m`)
+
+    try {
+      await updateCalendarEvent(event.id, { end_time: newEnd })
+      if (changedEvents.length > 0) {
+        for (const ev of changedEvents) {
+          await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to extend deadline:', err)
+      loadEvents()
+    }
+  }
+
+  // Complete Overdue Task
+  const handleCompleteOverdueEvent = async (event) => {
+    try {
+      if (onToggleTask && event.task_id) {
+        const matched = tasks.find((t) => t.id === event.task_id)
+        if (matched) onToggleTask(matched)
+      }
+      setEvents((prev) => prev.filter((e) => e.id !== event.id))
+      await deleteCalendarEvent(event.id)
+      showToast(`✓ Completed & archived "${event.title}"`)
+    } catch (err) {
+      console.error('Failed to complete overdue event:', err)
+    }
+  }
+
+  // Bottom Edge Duration Resize Listeners
+  const handleResizeStart = (e, event) => {
+    e.stopPropagation()
+    setResizingEvent(event)
+    resizeStartRef.current = {
+      startY: e.clientY,
+      startDuration: getDurationMinutes(event.start_time, event.end_time),
+      event
+    }
+  }
+
+  const handleResizeMove = useCallback(
+    (e) => {
+      if (!resizingEvent) return
+      const deltaY = e.clientY - resizeStartRef.current.startY
+      const deltaMinutes = Math.round(deltaY / 28) * 15 // 15-minute snapping
+      const newDuration = Math.max(15, resizeStartRef.current.startDuration + deltaMinutes)
+
+      const startMs = new Date(resizeStartRef.current.event.start_time).getTime()
+      const newEnd = new Date(startMs + newDuration * 60000).toISOString()
+
+      setEvents((prev) =>
+        prev.map((ev) => (ev.id === resizingEvent.id ? { ...ev, end_time: newEnd } : ev))
+      )
+    },
+    [resizingEvent]
+  )
+
+  const handleResizeEnd = useCallback(async () => {
+    if (!resizingEvent) return
+    const target = events.find((e) => e.id === resizingEvent.id)
+    setResizingEvent(null)
+
+    if (target) {
+      const { morphedEvents, changedEvents } = morphSchedule(events, autoMorphEnabled)
+      setEvents(morphedEvents)
+
+      try {
+        await updateCalendarEvent(target.id, { end_time: target.end_time })
+        if (changedEvents.length > 0) {
+          for (const ev of changedEvents) {
+            await updateCalendarEvent(ev.id, { start_time: ev.start_time, end_time: ev.end_time })
+          }
+        }
+      } catch (err) {
+        console.error('Failed to save resized event:', err)
+      }
+    }
+  }, [resizingEvent, events, autoMorphEnabled])
+
+  useEffect(() => {
+    if (resizingEvent) {
+      window.addEventListener('mousemove', handleResizeMove)
+      window.addEventListener('mouseup', handleResizeEnd)
+    } else {
+      window.removeEventListener('mousemove', handleResizeMove)
+      window.removeEventListener('mouseup', handleResizeEnd)
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleResizeMove)
+      window.removeEventListener('mouseup', handleResizeEnd)
+    }
+  }, [resizingEvent, handleResizeMove, handleResizeEnd])
 
   // Open Event Details / Edit Modal
   const handleEventClick = (e, event) => {
@@ -369,7 +607,6 @@ export default function ChronosCalendar({
     }
   }
 
-  // Filter events for active view
   const displayedDays = viewMode === 'day' ? [currentDate] : weekDays
 
   return (
@@ -454,10 +691,20 @@ export default function ChronosCalendar({
 
       {/* Main Body (Sidebar + Grid) */}
       <div className="chronos-body">
-        {/* Unassigned Task Backlog Sidebar */}
-        <aside className={`chronos-sidebar ${!isSidebarOpen ? 'collapsed' : ''}`}>
+        {/* Unassigned Task Backlog Sidebar (Accepts drops to unschedule) */}
+        <aside
+          className={`chronos-sidebar ${!isSidebarOpen ? 'collapsed' : ''} ${isSidebarDragOver ? 'drag-over-unschedule' : ''}`}
+          onDragOver={handleSidebarDragOver}
+          onDragLeave={handleSidebarDragLeave}
+          onDrop={handleSidebarDrop}
+          title={isSidebarDragOver ? 'Drop here to unschedule back to backlog' : undefined}
+        >
           <div className="chronos-sidebar-header">
-            {isSidebarOpen && <span>Backlog ({unassignedTasks.length})</span>}
+            {isSidebarOpen && (
+              <span>
+                {isSidebarDragOver ? 'Drop to Unschedule ↩' : `Backlog (${unassignedTasks.length})`}
+              </span>
+            )}
             <button
               type="button"
               className="chronos-sidebar-toggle"
@@ -538,16 +785,20 @@ export default function ChronosCalendar({
                       onClick={() => handleSlotClick(day, 9)}
                     >
                       <span className="month-cell-number">{day.getDate()}</span>
-                      {dayEvents.slice(0, 3).map((ev) => (
-                        <div
-                          key={ev.id}
-                          className="month-event-pill"
-                          onClick={(e) => handleEventClick(e, ev)}
-                          title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
-                        >
-                          {ev.title}
-                        </div>
-                      ))}
+                      {dayEvents.slice(0, 3).map((ev) => {
+                        const isOverdue = !ev.is_completed && new Date(now).getTime() > new Date(ev.end_time).getTime()
+                        return (
+                          <div
+                            key={ev.id}
+                            className={`month-event-pill ${isOverdue ? 'is-overdue' : ''}`}
+                            onClick={(e) => handleEventClick(e, ev)}
+                            title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
+                          >
+                            {isOverdue && '⚠️ '}
+                            {ev.title}
+                          </div>
+                        )
+                      })}
                       {dayEvents.length > 3 && (
                         <span style={{ fontSize: '9px', color: '#71717a', fontWeight: 'bold' }}>
                           +{dayEvents.length - 3} more
@@ -633,27 +884,35 @@ export default function ChronosCalendar({
                       {dayEvents.map((event) => {
                         const pos = getEventPosition(event.start_time, event.end_time)
                         const categoryClass = `cat-${event.category || 'General'}`
+                        const isOverdue = !event.is_completed && new Date(now).getTime() > new Date(event.end_time).getTime()
 
                         return (
                           <div
                             key={event.id}
-                            className={`chronos-event-card ${categoryClass} ${event._morphed ? 'morphed' : ''}`}
+                            className={`chronos-event-card ${categoryClass} ${event._morphed ? 'morphed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
                             style={{
                               top: pos.top,
                               height: pos.height
                             }}
+                            draggable
+                            onDragStart={(e) => handleEventDragStart(e, event)}
                             onClick={(e) => handleEventClick(e, event)}
-                            title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)})`}
+                            title={`${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — Drag to reschedule or drag to sidebar to unschedule`}
                           >
                             <div className="event-card-header">
                               <span className="event-card-time">
                                 {formatTimeShort(event.start_time)} – {formatTimeShort(event.end_time)}
                               </span>
-                              {event.auto_morph && (
-                                <span className="event-morph-badge" title="Auto-Morph Active">
-                                  ⚡
-                                </span>
-                              )}
+                              <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+                                {isOverdue && (
+                                  <span className="event-overdue-badge">⚠️ OVERDUE</span>
+                                )}
+                                {event.auto_morph && (
+                                  <span className="event-morph-badge" title="Auto-Morph Active">
+                                    ⚡
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             <div className="event-card-title">{event.title}</div>
@@ -662,6 +921,13 @@ export default function ChronosCalendar({
                               <span>{event.category || 'General'}</span>
                               <span className="event-card-badge">{event.priority || 'MED'}</span>
                             </div>
+
+                            {/* Bottom Edge Resize Handle */}
+                            <div
+                              className="event-resize-handle"
+                              onMouseDown={(e) => handleResizeStart(e, event)}
+                              title="Drag bottom edge to adjust duration"
+                            />
                           </div>
                         )
                       })}
@@ -673,6 +939,48 @@ export default function ChronosCalendar({
           )}
         </div>
       </div>
+
+      {/* Actionable Overdue Alert Banner */}
+      {topOverdueEvent && (
+        <aside className="chronos-overdue-banner" role="alert">
+          <div className="overdue-banner-left">
+            <span>⚠️</span>
+            <span>
+              Deadline passed for <strong className="overdue-banner-title">{topOverdueEvent.title}</strong>
+            </span>
+          </div>
+
+          <div className="overdue-banner-actions">
+            <button
+              type="button"
+              className="btn-overdue-complete"
+              onClick={() => handleCompleteOverdueEvent(topOverdueEvent)}
+              title="Mark task completed and archive"
+            >
+              ✓ Complete Task
+            </button>
+            <button
+              type="button"
+              className="btn-overdue-extend"
+              onClick={() => handleExtendEventDeadline(topOverdueEvent, 30)}
+              title="Extend deadline by 30 minutes"
+            >
+              +30m Extend
+            </button>
+            <button
+              type="button"
+              className="btn-overdue-dismiss"
+              onClick={() =>
+                setDismissedOverdueIds((prev) => new Set([...prev, topOverdueEvent.id]))
+              }
+              title="Dismiss alert"
+              aria-label="Dismiss alert"
+            >
+              ✕
+            </button>
+          </div>
+        </aside>
+      )}
 
       {/* Modern Floating Modal (Glassmorphic Backdrop) */}
       {modalState.isOpen && (
@@ -835,15 +1143,26 @@ export default function ChronosCalendar({
               </div>
 
               <div className="chronos-modal-actions">
-                <div>
+                <div style={{ display: 'flex', gap: '6px' }}>
                   {modalState.mode === 'edit' && (
-                    <button
-                      type="button"
-                      className="btn-chronos-delete"
-                      onClick={() => handleDeleteEvent(modalState.eventData.id)}
-                    >
-                      Delete
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn-chronos-delete"
+                        onClick={() => handleDeleteEvent(modalState.eventData.id)}
+                        title="Delete this event record"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-chronos-focus"
+                        onClick={() => handleUnscheduleEvent(modalState.eventData)}
+                        title="Unschedule and return to Backlog"
+                      >
+                        ↩ Unschedule
+                      </button>
+                    </>
                   )}
                 </div>
 

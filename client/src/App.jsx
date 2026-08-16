@@ -938,6 +938,7 @@ export default function App() {
         <ChronosCalendar
           tasks={tasks}
           onStartFocusSession={(targetTask) => handleOpenFocusSession(targetTask)}
+          onToggleTask={handleToggleTask}
           user={session?.user}
           showToast={showToast}
         />
