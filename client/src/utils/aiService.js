@@ -44,7 +44,6 @@ function isValidISO(dateStr) {
 
 /**
  * Normalize an ISO string from LLM to match the user's local timezone offset
- * If LLM returned "Z" or bare datetime, rewrite suffix with offsetStr to prevent UTC double-conversion.
  */
 function normalizeTimezoneISO(isoStr, offsetStr) {
   if (!isoStr || typeof isoStr !== 'string') return isoStr
@@ -73,7 +72,7 @@ function getDefaultDueDate(refDate = new Date(), offsetStr = null) {
 }
 
 /**
- * Extract clean JSON object from LLM response (handling potential markdown formatting)
+ * Extract clean JSON object from LLM response
  */
 function extractJSON(text) {
   if (!text) return null
@@ -118,31 +117,35 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
     tasks.push({
       title: local.title || transcript,
       category: local.category || 'General',
+      workspace: local.category || 'General',
       priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
       due_date: due,
+      scheduled_at: due,
       duration_minutes: 30
     })
-    replySummary = `Tugas "${local.title || transcript}" berhasil dibuat dengan tenggat ${new Date(due).toLocaleDateString('id-ID')}.`
+    replySummary = `Siap bro, tugas "${local.title || transcript}" udah masuk kalender.`
   } else if (local.type === 'SCHEDULE_TASK') {
     action = 'CREATE_TASKS'
     const due = local.startTime ? normalizeTimezoneISO(local.startTime, offsetStr) : defaultDue
     tasks.push({
       title: local.title || transcript,
       category: local.category || 'General',
+      workspace: local.category || 'General',
       priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
       due_date: due,
+      scheduled_at: due,
       duration_minutes: 60
     })
-    replySummary = `Jadwal "${local.title}" berhasil diatur untuk ${new Date(due).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`
+    replySummary = `Siap bro, jadwal "${local.title}" berhasil diatur untuk ${new Date(due).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`
   } else if (local.type === 'NAVIGATE') {
     action = 'NAVIGATE'
     targetView = local.view
-    replySummary = `Beralih ke ${
+    replySummary = `Siap bro, beralih ke ${
       local.view === 'calendar' ? 'Kalender' : local.view === 'focus' ? 'Fokus' : 'Tugas'
     }.`
   } else if (local.type === 'CLEAR_COMPLETED') {
     action = 'CLEAR_COMPLETED'
-    replySummary = 'Membersihkan tugas yang telah selesai.'
+    replySummary = 'Siap bro, tugas yang telah selesai berhasil dibersihkan.'
   }
 
   return {
@@ -150,17 +153,20 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
     tasks,
     title: local.title || transcript,
     start_time: local.startTime ? normalizeTimezoneISO(local.startTime, offsetStr) : defaultDue,
+    scheduled_at: local.startTime ? normalizeTimezoneISO(local.startTime, offsetStr) : defaultDue,
     end_time: local.endTime ? normalizeTimezoneISO(local.endTime, offsetStr) : null,
     priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
     category: local.category || 'General',
+    workspace: local.category || 'General',
     target_view: targetView,
+    confirmation_reply: replySummary,
     reply_summary: replySummary,
     raw: transcript
   }
 }
 
 function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = null) {
-  let action = result.action || 'UNKNOWN'
+  let action = result.action || 'CREATE_TASKS'
   const refDate = currentTimeISO ? new Date(currentTimeISO) : new Date()
   const defaultDue = getDefaultDueDate(refDate, offsetStr)
 
@@ -178,41 +184,47 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
     action = 'CREATE_TASKS'
     tasks = result.tasks.map((t) => {
       const cleanTitle = (t.title || '').trim() || 'Tugas Baru'
-      const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(t.category))
-        ? capitalizeFirstLetter(t.category)
+      const catVal = t.workspace || t.category || 'General'
+      const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(catVal))
+        ? capitalizeFirstLetter(catVal)
         : 'General'
       const prio = ['High', 'Medium', 'Low'].includes(capitalizeFirstLetter(t.priority))
         ? capitalizeFirstLetter(t.priority)
         : 'Medium'
-      const rawDue = t.due_date || defaultDue
+      const rawDue = t.scheduled_at || t.due_date || defaultDue
       const due = normalizeTimezoneISO(rawDue, offsetStr)
       const duration = Math.max(15, parseInt(t.duration_minutes, 10) || 30)
 
       return {
         title: cleanTitle,
         category: cat,
+        workspace: cat,
         priority: prio,
         due_date: isValidISO(due) ? due : defaultDue,
+        scheduled_at: isValidISO(due) ? due : defaultDue,
         duration_minutes: duration
       }
     })
-  } else if (result.title && action === 'CREATE_TASKS') {
+  } else if (result.title) {
     const cleanTitle = result.title.trim()
-    const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(result.category))
-      ? capitalizeFirstLetter(result.category)
+    const catVal = result.workspace || result.category || 'General'
+    const cat = ['General', 'Engineering', 'Design', 'Personal'].includes(capitalizeFirstLetter(catVal))
+      ? capitalizeFirstLetter(catVal)
       : 'General'
     const prio = ['High', 'Medium', 'Low'].includes(capitalizeFirstLetter(result.priority))
       ? capitalizeFirstLetter(result.priority)
       : 'Medium'
-    const rawDue = result.due_date || result.start_time || defaultDue
+    const rawDue = result.scheduled_at || result.due_date || result.start_time || defaultDue
     const due = normalizeTimezoneISO(rawDue, offsetStr)
 
     tasks = [
       {
         title: cleanTitle,
         category: cat,
+        workspace: cat,
         priority: prio,
         due_date: isValidISO(due) ? due : defaultDue,
+        scheduled_at: isValidISO(due) ? due : defaultDue,
         duration_minutes: 30
       }
     ]
@@ -230,96 +242,120 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
     }
   }
 
-  let replySummary = result.reply_summary
+  let replySummary = result.confirmation_reply || result.reply_summary
   if (!replySummary) {
     if (tasks.length > 1) {
-      replySummary = `Berhasil memecah dan menjadwalkan ${tasks.length} tugas ke kalender.`
+      replySummary = `Siap bro, ${tasks.length} tugas terjadwal udah masuk kalender.`
     } else if (tasks.length === 1) {
-      replySummary = `Tugas "${tasks[0].title}" berhasil dijadwalkan (${new Date(tasks[0].due_date).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}).`
+      replySummary = `Siap bro, tugas "${tasks[0].title}" udah masuk kalender.`
     } else {
       replySummary = `Perintah diproses: "${result.title || rawTranscript}"`
     }
   }
 
-  const rawStartTime = result.start_time || tasks[0]?.due_date || defaultDue
+  const rawStartTime = result.scheduled_at || result.start_time || tasks[0]?.due_date || defaultDue
   const rawEndTime = result.end_time
+  const catVal = result.workspace || result.category || tasks[0]?.category || 'General'
 
   return {
     action,
     tasks,
     title: result.title ? result.title.trim() : tasks[0]?.title || '',
     start_time: normalizeTimezoneISO(rawStartTime, offsetStr),
+    scheduled_at: normalizeTimezoneISO(rawStartTime, offsetStr),
     end_time: rawEndTime ? normalizeTimezoneISO(rawEndTime, offsetStr) : null,
     priority: result.priority ? capitalizeFirstLetter(result.priority) : tasks[0]?.priority || 'Medium',
-    category: result.category ? capitalizeFirstLetter(result.category) : tasks[0]?.category || 'General',
+    category: capitalizeFirstLetter(catVal),
+    workspace: capitalizeFirstLetter(catVal),
     target_view: targetView || null,
+    confirmation_reply: replySummary,
     reply_summary: replySummary,
     raw: rawTranscript
   }
 }
 
 /**
- * Parse user voice or text command into structured intent using Groq Llama 3 with exact Local Timezone Offset preservation
+ * Parse user voice or text command into structured intent with real-time context payload
  */
-export async function parseCommandWithAI(transcript, currentTimeISO = null) {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY
-
-  if (!apiKey || apiKey.trim() === '') {
-    console.warn('VITE_GROQ_API_KEY is not configured. Using local intent parser.')
-    return fallbackToLocal(transcript, currentTimeISO)
-  }
-
+export async function parseCommandWithAI(transcript, currentTimeISO = null, customTimezone = null) {
   const now = currentTimeISO ? new Date(currentTimeISO) : new Date()
+  const userTimezone =
+    customTimezone ||
+    (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Asia/Jakarta')
+  const clientCurrentTime = now.toISOString()
   const offsetStr = getLocalTimezoneOffsetString(now)
   const localReferenceISO = formatToLocalISOString(now, offsetStr)
+
+  // 1. Try Vercel Serverless /api/partner route first
+  try {
+    const res = await fetch('/api/partner', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcript,
+        clientTime: clientCurrentTime,
+        timezone: userTimezone
+      })
+    })
+
+    if (res.ok) {
+      const responseData = await res.json()
+      if (responseData.data) {
+        return sanitizeAIResult(responseData.data, transcript, offsetStr, clientCurrentTime)
+      }
+    }
+  } catch (apiErr) {
+    console.debug('/api/partner server route unavailable, trying direct LLM:', apiErr.message)
+  }
+
+  // 2. Direct client-side Groq Llama 3 fallback
+  const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
+  if (!apiKey) {
+    console.warn('VITE_GROQ_API_KEY is not configured. Using local intent parser.')
+    return fallbackToLocal(transcript, clientCurrentTime)
+  }
 
   const dayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const dayNamesId = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
   const dayOfWeekEn = dayNamesEn[now.getDay()]
   const dayOfWeekId = dayNamesId[now.getDay()]
 
-  const systemPrompt = `You are an elite productivity AI agent and multi-task scheduling engine.
-Current Local Datetime: ${localReferenceISO} (${dayOfWeekEn} / ${dayOfWeekId}).
-User's Local Timezone Offset: ${offsetStr} (e.g., UTC+7 WIB).
+  const systemPrompt = `Kamu adalah AI Partner di Task Registry & Calendar.
+WAKTU SEKARANG (User): ${localReferenceISO} (${dayOfWeekEn} / ${dayOfWeekId}).
+TIMEZONE: ${userTimezone} (Offset: ${offsetStr}).
 
-Your job is to parse user commands (Indonesian or English) into structured actions.
-KEY CAPABILITY: MULTI-TASK DECOMPOSITION & MANDATORY DEADLINES.
-If the user provides a sentence containing one or more tasks, steps, plans, or deadlines (e.g. "Ada ujian matematika hari selasa jam 13, paginya mau belajar 30 menit jam 7"):
-Decompose them into an array of actionable tasks under "action": "CREATE_TASKS".
-If user gives a single task, also output "action": "CREATE_TASKS" with 1 item in "tasks" array.
+Tugasmu:
+1. Ekstrak perintah user (Bahasa Indonesia / Inggris) menjadi data task yang terstruktur.
+2. Hitung tanggal & jam relatif ('besok', 'nanti malam jam 8', 'selasa jam 13', 'pagi jam 7') secara akurat berdasarkan WAKTU SEKARANG.
+3. Dekomposisi kalimat multi-tugas jika user menyebut lebih dari 1 tugas ke dalam array "tasks".
+4. "workspace" / "category" pilih salah satu: "General" | "Engineering" | "Design" | "Personal".
+5. "priority" pilih salah satu: "Low" | "Medium" | "High".
+6. "due_date" / "scheduled_at" harus berupa string ISO dengan offset "${offsetStr}" (contoh: YYYY-MM-DDTHH:MM:00${offsetStr}).
+7. "confirmation_reply" adalah pesan balasan suara ramah & natural (contoh: "Siap bro, tugas siapkan laporan jam 3 sore udah masuk kalender.").
 
-CRITICAL TIMEZONE & OFFSET RULES:
-1. The user's local timezone offset is: ${offsetStr}.
-2. When user specifies an hour (e.g. "jam 13" or "jam 07" or "13:00" or "pukul 13"), this refers to their LOCAL time (${offsetStr}).
-3. ALWAYS output "due_date", "start_time", and "end_time" formatted with the user's exact timezone offset "${offsetStr}" (e.g. "YYYY-MM-DDTHH:MM:00${offsetStr}").
-4. NEVER output "Z" UTC timestamps and NEVER shift or convert the user's requested local hours into UTC.
-   - Example: If user says "ujian matematika selasa jam 13:00", the "due_date" MUST literally be "2026-08-18T13:00:00${offsetStr}".
-   - Example: If user says "belajar jam 7 pagi", the "due_date" MUST literally be "2026-08-18T07:00:00${offsetStr}".
-5. If only a date is mentioned without time (e.g., "besok", "hari jumat"), set due_date to that date at 17:00:00${offsetStr} or 23:59:00${offsetStr}.
-6. If no deadline or time is mentioned at all, infer a sensible default (e.g., today at 23:59:00${offsetStr} or tomorrow morning).
-7. "duration_minutes": Duration in minutes (default 30 or 60).
-8. "priority": "High" | "Medium" | "Low". (Exams, tests, urgent deadlines = "High").
-9. "category": "General" | "Engineering" | "Design" | "Personal".
-
-Return STRICT JSON ONLY matching this schema without markdown blocks:
+Return STRICT JSON ONLY matching this schema:
 {
   "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "title": "Judul ringkas tugas utama",
+  "workspace": "General" | "Engineering" | "Design" | "Personal",
+  "category": "General" | "Engineering" | "Design" | "Personal",
+  "priority": "High" | "Medium" | "Low",
+  "scheduled_at": "YYYY-MM-DDTHH:MM:00${offsetStr}",
+  "due_date": "YYYY-MM-DDTHH:MM:00${offsetStr}",
+  "duration_minutes": 30,
+  "confirmation_reply": "Siap bro, tugas udah masuk kalender.",
+  "reply_summary": "Siap bro, tugas udah masuk kalender.",
   "tasks": [
     {
-      "title": "Clean, concise actionable title",
+      "title": "Judul tugas",
+      "workspace": "General" | "Engineering" | "Design" | "Personal",
       "category": "General" | "Engineering" | "Design" | "Personal",
       "priority": "High" | "Medium" | "Low",
+      "scheduled_at": "YYYY-MM-DDTHH:MM:00${offsetStr}",
       "due_date": "YYYY-MM-DDTHH:MM:00${offsetStr}",
       "duration_minutes": 30
     }
-  ],
-  "title": "Clean concise title for single event/task",
-  "start_time": "YYYY-MM-DDTHH:MM:00${offsetStr} or null",
-  "end_time": "YYYY-MM-DDTHH:MM:00${offsetStr} or null",
-  "priority": "High" | "Medium" | "Low",
-  "category": "General" | "Engineering" | "Design" | "Personal",
-  "target_view": "calendar" | "tasks" | "focus" | null,
-  "reply_summary": "Friendly Indonesian acknowledgment (e.g., 'Berhasil memecah dan menambahkan 2 tugas terjadwal ke kalender.')"
+  ]
 }`
 
   const userPrompt = `User Command: "${transcript}"`
@@ -329,7 +365,7 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey.trim()}`
+        Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model: PRIMARY_MODEL,
@@ -350,7 +386,7 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey.trim()}`
+          Authorization: `Bearer ${apiKey}`
         },
         body: JSON.stringify({
           model: FALLBACK_MODEL,
@@ -372,17 +408,17 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
       const fbData = await fallbackResp.json()
       const content = fbData.choices?.[0]?.message?.content
       const parsed = extractJSON(content)
-      if (parsed) return sanitizeAIResult(parsed, transcript, offsetStr, currentTimeISO)
+      if (parsed) return sanitizeAIResult(parsed, transcript, offsetStr, clientCurrentTime)
     } else {
       const data = await response.json()
       const content = data.choices?.[0]?.message?.content
       const parsed = extractJSON(content)
-      if (parsed) return sanitizeAIResult(parsed, transcript, offsetStr, currentTimeISO)
+      if (parsed) return sanitizeAIResult(parsed, transcript, offsetStr, clientCurrentTime)
     }
 
     throw new Error('Could not parse valid JSON from Groq AI response.')
   } catch (err) {
     console.error('Groq AI parseCommand error:', err)
-    return fallbackToLocal(transcript, currentTimeISO)
+    return fallbackToLocal(transcript, clientCurrentTime)
   }
 }
