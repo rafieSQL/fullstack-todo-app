@@ -16,6 +16,7 @@ export class ApiError extends Error {
 // Columns to fetch for minimal payload transfer
 const TASK_FIELDS = 'id, title, priority, category, completed, "order", created_at, updated_at'
 const ACTIVITY_FIELDS = 'id, type, message, details, created_at'
+const CALENDAR_FIELDS = 'id, task_id, title, start_time, end_time, category, priority, auto_morph, is_completed, created_at, updated_at'
 
 // In-memory fallback dataset for sandbox/preview mode
 let mockTasks = [
@@ -54,6 +55,45 @@ let mockActivities = [
     type: 'create',
     message: 'System initialized with engineering backlog tasks',
     created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString()
+  }
+]
+
+let mockCalendarEvents = [
+  {
+    id: 'cal-1',
+    task_id: 'mock-1',
+    title: 'Audit database connection pooling',
+    start_time: new Date(new Date().setHours(9, 0, 0, 0)).toISOString(),
+    end_time: new Date(new Date().setHours(10, 30, 0, 0)).toISOString(),
+    category: 'Engineering',
+    priority: 'high',
+    auto_morph: true,
+    is_completed: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'cal-2',
+    task_id: 'mock-2',
+    title: 'PR #104 Review & API Idempotency Verification',
+    start_time: new Date(new Date().setHours(11, 0, 0, 0)).toISOString(),
+    end_time: new Date(new Date().setHours(12, 0, 0, 0)).toISOString(),
+    category: 'Engineering',
+    priority: 'medium',
+    auto_morph: true,
+    is_completed: false,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'cal-3',
+    task_id: null,
+    title: 'Sprint Planning & Architecture Sync',
+    start_time: new Date(new Date().setHours(14, 0, 0, 0)).toISOString(),
+    end_time: new Date(new Date().setHours(15, 0, 0, 0)).toISOString(),
+    category: 'General',
+    priority: 'medium',
+    auto_morph: false,
+    is_completed: false,
+    created_at: new Date().toISOString()
   }
 ]
 
@@ -426,3 +466,167 @@ export async function logActivity({ type, message, details = {}, userId = null }
     return null
   }
 }
+
+/**
+ * Fetch calendar events within a given time range
+ */
+export async function getCalendarEvents({ start = null, end = null } = {}) {
+  if (!isSupabaseConfigured) {
+    let list = [...mockCalendarEvents]
+    if (start) {
+      list = list.filter((e) => new Date(e.end_time) >= new Date(start))
+    }
+    if (end) {
+      list = list.filter((e) => new Date(e.start_time) <= new Date(end))
+    }
+    return list.sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+  }
+
+  try {
+    let query = supabase
+      .from('calendar_events')
+      .select(CALENDAR_FIELDS)
+      .order('start_time', { ascending: true })
+
+    if (start) query = query.gte('end_time', start)
+    if (end) query = query.lte('start_time', end)
+
+    const { data, error } = await query
+    if (error) {
+      console.warn('Calendar fetch error, using local fallback:', error.message)
+      return mockCalendarEvents
+    }
+    return data || []
+  } catch (err) {
+    console.warn('Calendar query failed:', err)
+    return mockCalendarEvents
+  }
+}
+
+/**
+ * Create a new calendar event
+ */
+export async function createCalendarEvent({
+  title,
+  startTime,
+  endTime,
+  taskId = null,
+  category = 'General',
+  priority = 'medium',
+  autoMorph = true,
+  userId = null
+}) {
+  const cleanTitle = sanitizeText(title, 250)
+  if (!cleanTitle) {
+    throw new ApiError('Event title is required and cannot be empty.', 400)
+  }
+
+  if (!isSupabaseConfigured) {
+    const newEvent = {
+      id: `cal-${Date.now()}`,
+      task_id: taskId,
+      title: cleanTitle,
+      start_time: new Date(startTime).toISOString(),
+      end_time: new Date(endTime).toISOString(),
+      category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
+      priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
+      auto_morph: Boolean(autoMorph),
+      is_completed: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+    mockCalendarEvents.push(newEvent)
+    return newEvent
+  }
+
+  try {
+    const payload = {
+      title: cleanTitle,
+      start_time: new Date(startTime).toISOString(),
+      end_time: new Date(endTime).toISOString(),
+      task_id: taskId || null,
+      category: ['General', 'Engineering', 'Design', 'Personal'].includes(category) ? category : 'General',
+      priority: ['low', 'medium', 'high'].includes(priority) ? priority : 'medium',
+      auto_morph: Boolean(autoMorph),
+      is_completed: false
+    }
+    if (userId) payload.user_id = userId
+
+    const { data, error } = await supabase
+      .from('calendar_events')
+      .insert([payload])
+      .select(CALENDAR_FIELDS)
+      .single()
+
+    if (error) {
+      throw new ApiError(`Failed to schedule event: ${error.message}`, 400, error)
+    }
+
+    return data
+  } catch (err) {
+    if (err instanceof ApiError) throw err
+    throw new ApiError('Failed to schedule event due to network error.', 500, err)
+  }
+}
+
+/**
+ * Update an existing calendar event (e.g. reschedule, auto-morph shift, complete)
+ */
+export async function updateCalendarEvent(id, updates = {}) {
+  if (!id) throw new ApiError('Event ID is required for update.', 400)
+
+  if (!isSupabaseConfigured) {
+    const idx = mockCalendarEvents.findIndex((e) => e.id === id)
+    if (idx === -1) throw new ApiError('Event not found.', 404)
+
+    mockCalendarEvents[idx] = {
+      ...mockCalendarEvents[idx],
+      ...updates,
+      updated_at: new Date().toISOString()
+    }
+    return mockCalendarEvents[idx]
+  }
+
+  try {
+    const payload = { ...updates, updated_at: new Date().toISOString() }
+
+    const { data, error } = await supabase
+      .from('calendar_events')
+      .update(payload)
+      .eq('id', id)
+      .select(CALENDAR_FIELDS)
+      .single()
+
+    if (error) {
+      throw new ApiError(`Failed to update event: ${error.message}`, 400, error)
+    }
+    return data
+  } catch (err) {
+    if (err instanceof ApiError) throw err
+    throw new ApiError('Failed to update event due to network error.', 500, err)
+  }
+}
+
+/**
+ * Delete a calendar event
+ */
+export async function deleteCalendarEvent(id) {
+  if (!id) throw new ApiError('Event ID is required for deletion.', 400)
+
+  if (!isSupabaseConfigured) {
+    mockCalendarEvents = mockCalendarEvents.filter((e) => e.id !== id)
+    return true
+  }
+
+  try {
+    const { error } = await supabase.from('calendar_events').delete().eq('id', id)
+    if (error) {
+      throw new ApiError(`Failed to delete event: ${error.message}`, 400, error)
+    }
+    return true
+  } catch (err) {
+    if (err instanceof ApiError) throw err
+    throw new ApiError('Failed to delete event due to network error.', 500, err)
+  }
+}
+

@@ -1,0 +1,561 @@
+/* ==========================================================================
+   Chronos Calendar & Velocity-Driven Time-Morphing Engine - Styles
+   Strict Utilitarian / High-Contrast Monochrome Aesthetic
+   ========================================================================== */
+
+.chronos-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  min-height: 600px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+/* Header Action Bar */
+.chronos-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background-color: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-medium);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.chronos-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chronos-btn-nav {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  transition: all 0.15s;
+}
+
+.chronos-btn-nav:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-dark);
+}
+
+.chronos-date-title {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-left: 6px;
+}
+
+/* View Modes (Week / Day) */
+.chronos-view-switch {
+  display: flex;
+  background-color: var(--bg-surface);
+  padding: 2px;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.chronos-view-btn {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-radius: 2px;
+  transition: all 0.1s;
+}
+
+.chronos-view-btn.active {
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  font-weight: 700;
+}
+
+/* Velocity Auto-Morph Status Chip */
+.chronos-morph-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  cursor: pointer;
+}
+
+.chronos-morph-status-btn.active {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.chronos-morph-status-btn:hover {
+  border-color: var(--text-primary);
+}
+
+.morph-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+/* Main Layout (Sidebar + Calendar Grid) */
+.chronos-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Unassigned Tasks Backlog Sidebar */
+.chronos-sidebar {
+  width: 270px;
+  border-right: 1px solid var(--border-medium);
+  background-color: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+
+.chronos-sidebar.collapsed {
+  width: 36px;
+}
+
+.chronos-sidebar-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.chronos-sidebar-toggle {
+  background: transparent;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.chronos-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+
+.chronos-sidebar-task {
+  padding: 8px 10px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  transition: transform 0.1s, border-color 0.15s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chronos-sidebar-task:hover {
+  border-color: var(--border-dark);
+  box-shadow: var(--shadow-subtle);
+  transform: translateY(-1px);
+}
+
+.chronos-sidebar-task:active {
+  cursor: grabbing;
+}
+
+.sidebar-task-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.sidebar-task-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.sidebar-task-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sidebar-task-btn:hover {
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+}
+
+/* Calendar Grid View Area */
+.chronos-grid-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background-color: var(--bg-page);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) transparent;
+}
+
+/* Day Header Row */
+.chronos-days-header-row {
+  display: grid;
+  grid-template-columns: 55px repeat(7, 1fr);
+  border-bottom: 1px solid var(--border-medium);
+  background-color: var(--bg-surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.chronos-days-header-row.day-view {
+  grid-template-columns: 55px 1fr;
+}
+
+.chronos-time-gutter-header {
+  padding: 8px 4px;
+  border-right: 1px solid var(--border-light);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.chronos-day-col-header {
+  padding: 8px 6px;
+  text-align: center;
+  border-right: 1px solid var(--border-light);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.chronos-day-col-header.is-today {
+  color: var(--text-primary);
+  background-color: var(--bg-subtle);
+  border-bottom: 2px solid var(--text-primary);
+}
+
+/* 24-Hour Timeline Grid */
+.chronos-timeline-grid {
+  display: grid;
+  grid-template-columns: 55px repeat(7, 1fr);
+  position: relative;
+  min-height: 1200px;
+}
+
+.chronos-timeline-grid.day-view {
+  grid-template-columns: 55px 1fr;
+}
+
+/* Time Gutter (Hours 00:00 - 23:00) */
+.chronos-time-gutter {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-light);
+  background-color: var(--bg-subtle);
+}
+
+.chronos-hour-label {
+  height: 50px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: 6px;
+  transform: translateY(-7px);
+}
+
+/* Day Column & Time Slots */
+.chronos-day-column {
+  border-right: 1px solid var(--border-light);
+  position: relative;
+  background-color: var(--bg-surface);
+}
+
+.chronos-day-column.is-today {
+  background-color: rgba(255, 255, 255, 0.015);
+}
+
+.chronos-hour-slot {
+  height: 50px;
+  border-bottom: 1px solid var(--border-light);
+  box-sizing: border-box;
+  transition: background-color 0.1s;
+  cursor: pointer;
+}
+
+.chronos-hour-slot:hover {
+  background-color: var(--bg-hover);
+}
+
+.chronos-hour-slot.drag-over {
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px dashed var(--text-primary);
+}
+
+/* Current Time Red/Accent Line */
+.chronos-current-time-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: #ef4444;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.chronos-current-time-line::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ef4444;
+}
+
+/* Event Cards */
+.chronos-event-card {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-dark);
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.15s, border-color 0.15s;
+  z-index: 2;
+}
+
+.chronos-event-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--text-primary);
+  box-shadow: var(--shadow-md);
+  z-index: 4;
+}
+
+.chronos-event-card.morphed {
+  border-left: 3px solid #10b981;
+}
+
+.chronos-event-card.priority-high {
+  border-top: 2px solid #ef4444;
+}
+
+.chronos-event-card.priority-medium {
+  border-top: 2px solid #f59e0b;
+}
+
+.chronos-event-card.priority-low {
+  border-top: 2px solid #10b981;
+}
+
+.event-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.event-card-time {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.event-morph-badge {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.event-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.event-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+/* Event Edit / Create Modal */
+.chronos-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.chronos-modal {
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chronos-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+}
+
+.chronos-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chronos-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chronos-form-row label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.chronos-input {
+  padding: 6px 10px;
+  font-size: 12px;
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.chronos-input:focus {
+  border-color: var(--text-primary);
+}
+
+.chronos-time-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.chronos-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+.btn-chronos-delete {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background-color: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-chronos-delete:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.btn-chronos-submit {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}

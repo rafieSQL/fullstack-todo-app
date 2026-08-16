@@ -6,6 +6,7 @@ import { useFocus } from './context/useFocus.js'
 import Auth from './components/Auth.jsx'
 import FocusSession from './components/FocusSession.jsx'
 import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
+import ChronosCalendar from './components/ChronosCalendar.jsx'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -55,6 +56,9 @@ export default function App() {
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newPriority, setNewPriority] = useState('medium')
   const [newCategory, setNewCategory] = useState('General')
+
+  // Navigation state (Tasks vs Chronos Calendar)
+  const [mainTab, setMainTab] = useState('tasks') // 'tasks' | 'calendar'
 
   // Filter & Sort state
   const [activeTab, setActiveTab] = useState('all') // 'all' | 'active' | 'completed'
@@ -275,6 +279,16 @@ export default function App() {
       } else if (e.key === 'f' || e.key === 'F') {
         e.preventDefault()
         handleOpenFocusSession()
+      } else if (e.key === 'c' || e.key === 'C') {
+        if (!e.metaKey && !e.ctrlKey) {
+          e.preventDefault()
+          setMainTab('calendar')
+        }
+      } else if (e.key === 't' || e.key === 'T') {
+        if (!e.metaKey && !e.ctrlKey) {
+          e.preventDefault()
+          setMainTab('tasks')
+        }
       }
     }
 
@@ -791,6 +805,30 @@ export default function App() {
           </div>
         </div>
 
+        {/* Main Navigation Switcher (Tasks vs Chronos Calendar) */}
+        <div className="header-nav-tabs" role="tablist" aria-label="Main Navigation">
+          <button
+            type="button"
+            className={`btn-main-nav ${mainTab === 'tasks' ? 'active' : ''}`}
+            onClick={() => setMainTab('tasks')}
+            title="Switch to Tasks Registry (T)"
+            role="tab"
+            aria-selected={mainTab === 'tasks'}
+          >
+            Tasks <kbd className="key-badge" style={{ fontSize: '9px', padding: '0 3px' }}>T</kbd>
+          </button>
+          <button
+            type="button"
+            className={`btn-main-nav ${mainTab === 'calendar' ? 'active' : ''}`}
+            onClick={() => setMainTab('calendar')}
+            title="Switch to Chronos Calendar (C)"
+            role="tab"
+            aria-selected={mainTab === 'calendar'}
+          >
+            Calendar <kbd className="key-badge" style={{ fontSize: '9px', padding: '0 3px' }}>C</kbd>
+          </button>
+        </div>
+
         <div className="header-actions">
           {/* 1. Account / Session Pill */}
           {session ? (
@@ -895,8 +933,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Metrics Bar */}
-      <section className="metrics-bar" aria-label="Task Summary Metrics">
+      {/* Main Content: Chronos Calendar vs Task Registry */}
+      {mainTab === 'calendar' ? (
+        <ChronosCalendar
+          tasks={tasks}
+          onStartFocusSession={(targetTask) => handleOpenFocusSession(targetTask)}
+          user={session?.user}
+          showToast={showToast}
+        />
+      ) : (
+        <>
+          {/* Metrics Bar */}
+          <section className="metrics-bar" aria-label="Task Summary Metrics">
         <div className="metric-card">
           <span className="metric-label">Total Tasks</span>
           <span className="metric-value">{metrics.total}</span>
@@ -1345,6 +1393,8 @@ export default function App() {
           )}
         </footer>
       </section>
+      </>
+      )}
 
       {/* Collapsible Activity Log Drawer */}
       {isActivityOpen && (
