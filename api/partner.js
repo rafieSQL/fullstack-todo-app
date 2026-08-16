@@ -73,29 +73,32 @@ export default async function handler(req, res) {
     }
 
     const rawTasks = tasks.length > 0 ? tasks : activeTasks;
-    const simplifiedTasks = rawTasks.slice(0, 30).map((t) => ({
-      id: t.id || t._id,
-      title: t.title || t.text,
+    const taskList = rawTasks.map((t) => ({
+      id: String(t.id || t._id || ''),
+      title: String(t.title || t.text || ''),
       completed: Boolean(t.completed)
-    }));
+    })).filter((t) => t.id && t.title);
 
-    const systemPrompt = `Kamu adalah JSON task action parser to-do list. Tugasmu mengekstrak aksi ke format JSON valid tanpa basa-basi.
+    const systemPrompt = `Kamu adalah JSON task parser to-do list.
 
-DAFTAR TUGAS AKTIF:
-${JSON.stringify(simplifiedTasks)}
+DAFTAR TUGAS USER SAAT INI:
+${JSON.stringify(taskList, null, 2)}
 
-ATURAN HAPUS BANYAK (BULK DELETE):
-1. Jika pengguna meminta menghapus jamak/semua (contoh: "hapus semua main bareng", "bersihkan task main bareng temen", "delete semua to-do", "hapus yang namanya X"):
-   - Cari SEMUA tugas yang mengandung atau mirip kata kunci tersebut.
-   - Kumpulkan SEMUA id-nya ke dalam array "target_task_ids".
+ATURAN PENCOCOKAN KETAT:
+1. HANYA pilih tugas yang judulnya secara EKSPLISIT mengandung atau sama dengan kata yang diminta user.
+2. JANGAN PERNAH memilih tugas lain yang namanya tidak berhubungan! (Contoh: jika user minta hapus "main bareng temen", JANGAN sentuh "Upacara 17 Agustus" atau task lain yang berbeda judul).
+3. Jika user berkata "hapus semua [kata kunci]" atau "hapus [kata kunci]":
+   - Cari semua task yang judulnya mengandung kata kunci tersebut.
+   - Ambil SEMUA id tugas yang cocok ke dalam array "target_task_ids".
    - Set action: "BULK_DELETE_TASK".
-   - Jika pengguna minta "hapus semua tugas" tanpa filter, masukkan SEMUA id di daftar tugas.
-
-ATURAN AKSI LAINNYA:
-- DELETE_TASK: Hapus 1 tugas spesifik -> "target_task_id" (string)
-- COMPLETE_TASK: Selesai/centang tugas -> "target_task_id" (string)
-- CREATE_TASK: Buat tugas baru -> "taskData" ({ title, priority, category })
-- CHAT: Pertanyaan umum / ngobrol biasa
+4. Jika user minta hapus 1 tugas spesifik:
+   - Ambil ID-nya ke "target_task_id" (string) dan set action: "DELETE_TASK".
+5. Jika user minta menyelesaikan tugas ("selesai", "sudah", "beres", "centang [nama]"):
+   - Ambil ID-nya ke "target_task_id" (string) dan set action: "COMPLETE_TASK".
+6. Jika user ingin membuat tugas baru:
+   - Set action: "CREATE_TASK" dan isi "taskData" ({ title, priority, category }).
+7. Jika tidak ada tugas yang cocok sama sekali:
+   - Set action: "CHAT" dan beri tahu user dengan jelas.
 
 FORMAT OUTPUT WAJIB JSON:
 {
@@ -103,7 +106,7 @@ FORMAT OUTPUT WAJIB JSON:
   "target_task_ids": ["id1", "id2"],
   "target_task_id": "id_tunggal_atau_null",
   "taskData": null,
-  "reply": "Siap, X tugas berhasil dihapus!"
+  "reply": "Pesan konfirmasi yang jelas dan akurat"
 }`;
 
     if (groq) {
@@ -111,7 +114,7 @@ FORMAT OUTPUT WAJIB JSON:
         model: 'llama-3.3-70b-versatile',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: promptMessage }
+          { role: 'user', content: `Perintah: "${promptMessage}"` }
         ],
         response_format: { type: 'json_object' },
         temperature: 0.0
@@ -137,7 +140,7 @@ FORMAT OUTPUT WAJIB JSON:
           model: 'llama-3.3-70b-versatile',
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: promptMessage }
+            { role: 'user', content: `Perintah: "${promptMessage}"` }
           ],
           temperature: 0.0,
           response_format: { type: 'json_object' }

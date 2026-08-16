@@ -533,7 +533,9 @@ export default function App() {
   const handleToggleTask = useCallback(
     async (taskOrId) => {
       const task =
-        typeof taskOrId === 'string' ? tasks.find((t) => t.id === taskOrId) : taskOrId
+        typeof taskOrId === 'object' && taskOrId !== null
+          ? taskOrId
+          : tasks.find((t) => String(t.id || t._id) === String(taskOrId))
 
       if (!task || !task.id) return
       if (busyTaskIds.has(task.id)) return
@@ -542,7 +544,7 @@ export default function App() {
       const nextCompleted = !task.completed
 
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, completed: nextCompleted } : t))
+        prev.map((t) => (String(t.id || t._id) === String(task.id) ? { ...t, completed: nextCompleted } : t))
       )
 
       try {
@@ -552,7 +554,7 @@ export default function App() {
       } catch (err) {
         console.error('Failed to update task:', err)
         setTasks((prev) =>
-          prev.map((t) => (t.id === task.id ? { ...t, completed: task.completed } : t))
+          prev.map((t) => (String(t.id || t._id) === String(task.id) ? { ...t, completed: task.completed } : t))
         )
         showToast(`Failed to update task: ${err.message}`, 'error')
       } finally {
@@ -618,13 +620,15 @@ export default function App() {
   const handleDeleteTask = useCallback(
     async (taskOrId) => {
       const task =
-        typeof taskOrId === 'string' ? tasks.find((t) => t.id === taskOrId) : taskOrId
+        typeof taskOrId === 'object' && taskOrId !== null
+          ? taskOrId
+          : tasks.find((t) => String(t.id || t._id) === String(taskOrId))
 
       if (!task || !task.id) return
 
       const previousTasks = [...tasks]
-      setTasks((prev) => prev.filter((t) => t.id !== task.id))
-      setSelectedTaskIds((prev) => prev.filter((id) => id !== task.id))
+      setTasks((prev) => prev.filter((t) => String(t.id || t._id) !== String(task.id)))
+      setSelectedTaskIds((prev) => prev.filter((id) => String(id) !== String(task.id)))
 
       try {
         await api.deleteTask(task.id, task.title, session?.user?.id)
