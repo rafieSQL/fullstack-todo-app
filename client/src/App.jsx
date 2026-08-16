@@ -17,6 +17,7 @@ import {
   processTextCommand
 } from './utils/audioRecorder.js'
 import { parseCommandWithAI } from './utils/aiService.js'
+import { speakBack } from './utils/tts.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -870,9 +871,16 @@ export default function App() {
           })
         }
 
+        const replyMsg =
+          result.reply_summary ||
+          (taskList.length === 1
+            ? `Siap bro, tugas "${taskList[0].title}" udah masuk kalender.`
+            : `Siap bro, ${taskList.length} tugas terjadwal udah masuk kalender.`)
+
         sfx.playSuccess()
-        setInterimVoiceText(`✓ ${result.reply_summary || `Berhasil menambahkan ${taskList.length} tugas.`}`)
-        showToast(`🤝 Partner: ${result.reply_summary || `Berhasil menambahkan ${taskList.length} tugas terjadwal ke kalender.`}`)
+        setInterimVoiceText(`✓ ${replyMsg}`)
+        showToast(`🤝 Partner: ${replyMsg}`)
+        speakBack(replyMsg)
       } else if (action === 'CREATE_TASK') {
         setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
         await handleCreateTask({
@@ -882,9 +890,11 @@ export default function App() {
           due_date: result.start_time || result.due_date,
           duration_minutes: 30
         })
+        const replyMsg = result.reply_summary || `Siap bro, tugas "${result.title}" berhasil dibuat.`
         sfx.playSuccess()
-        setInterimVoiceText(`✓ ${result.reply_summary || `Created: "${result.title}"`}`)
-        showToast(`🤝 Partner: ${result.reply_summary || `Task "${result.title}" created.`}`)
+        setInterimVoiceText(`✓ ${replyMsg}`)
+        showToast(`🤝 Partner: ${replyMsg}`)
+        speakBack(replyMsg)
       } else if (action === 'SCHEDULE_EVENT') {
         setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
         const startTime = result.start_time || new Date().toISOString()
@@ -902,10 +912,12 @@ export default function App() {
           isCompleted: false,
           userId: session?.user?.id
         })
+        const replyMsg = result.reply_summary || `Siap bro, jadwal "${result.title}" berhasil diatur.`
         sfx.playSuccess()
         setMainTab('calendar')
-        setInterimVoiceText(`✓ ${result.reply_summary || `Scheduled: "${result.title}"`}`)
-        showToast(`🤝 Partner: ${result.reply_summary || `Scheduled "${result.title}".`}`)
+        setInterimVoiceText(`✓ ${replyMsg}`)
+        showToast(`🤝 Partner: ${replyMsg}`)
+        speakBack(replyMsg)
       } else if (action === 'NAVIGATE') {
         sfx.playSuccess()
         const targetView = result.target_view || 'tasks'
@@ -914,23 +926,23 @@ export default function App() {
         } else {
           setMainTab(targetView)
         }
-        setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
-        showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
+        const replyMsg = result.reply_summary || 'Siap bro, beralih tampilan.'
+        setInterimVoiceText(`✓ ${replyMsg}`)
+        showToast(`🤝 Partner: ${replyMsg}`)
+        speakBack(replyMsg)
       } else if (action === 'CLEAR_COMPLETED') {
         setInterimVoiceText('⚡ Purging completed tasks...')
         await handleClearCompleted()
+        const replyMsg = result.reply_summary || 'Siap bro, tugas selesai telah dibersihkan.'
         sfx.playSuccess()
-        setInterimVoiceText(`✓ ${result.reply_summary || 'Cleared completed tasks'}`)
-        showToast(`🤝 Partner: ${result.reply_summary || 'Cleared completed tasks.'}`)
+        setInterimVoiceText(`✓ ${replyMsg}`)
+        showToast(`🤝 Partner: ${replyMsg}`)
+        speakBack(replyMsg)
       } else {
+        const fallbackMsg = result.reply_summary || (transcript ? `Perintah "${transcript}" tidak dikenali.` : 'Suara tidak terdeteksi.')
         setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
-        showToast(
-          `🤝 Partner: ${
-            result.reply_summary ||
-            (transcript ? `"${transcript}"` : 'Perintah tidak dikenali.')
-          }`,
-          'info'
-        )
+        showToast(`🤝 Partner: ${fallbackMsg}`, 'info')
+        speakBack(fallbackMsg)
       }
     },
     [session, handleCreateTask, handleClearCompleted, handleOpenFocusSession, showToast]
