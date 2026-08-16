@@ -354,9 +354,12 @@ export default function App() {
         title: sanitizedTitle,
         priority: priority.toLowerCase(),
         category,
+        workspace: category,
         due_date: validDueDate,
+        scheduled_at: validDueDate,
         order: 0,
         completed: false,
+        is_optimistic: true,
         created_at: new Date().toISOString()
       }
 
@@ -389,7 +392,9 @@ export default function App() {
             console.warn('Calendar sync notice for created task:', calErr)
           })
 
-        setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
+        setTasks((prev) =>
+          prev.map((t) => (t.id === tempId ? { ...createdTask, is_optimistic: false } : t))
+        )
         loadActivities()
         return createdTask
       } catch (err) {
@@ -412,43 +417,75 @@ export default function App() {
       setIsSubmitting(true)
       setErrorMessage(null)
 
+      const tempPreviewId = `opt-preview-${Date.now()}`
+      const previewTask = {
+        id: tempPreviewId,
+        title: rawInput,
+        priority: newPriority,
+        category: newCategory,
+        workspace: newCategory,
+        order: 0,
+        completed: false,
+        is_optimistic: true,
+        created_at: new Date().toISOString()
+      }
+
+      setTasks((prev) => [previewTask, ...prev])
+      setNewTaskTitle('')
+
       try {
-        // Send input to AI parser for multi-task decomposition & deadline extraction
-        const parsed = await parseCommandWithAI(rawInput, new Date().toISOString())
+        // Send input to AI parser for multi-task decomposition & deadline extraction (with 7s timeout & active task memory)
+        const activeContextTasks = tasks
+          .filter((t) => !t.completed)
+          .slice(0, 15)
+          .map((t) => ({
+            id: t.id,
+            title: t.title,
+            workspace: t.category || t.workspace || 'General',
+            time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+          }))
+
+        const parsed = await parseCommandWithAI(rawInput, new Date().toISOString(), null, activeContextTasks)
+
+        // Ambiguity check
+        if (parsed.is_ambiguous) {
+          showToast('⚠️ Partner kurang yakin dengan waktunya. Silakan sesuaikan manual.', 'info')
+        }
+
+        // Remove preview task before actual creation
+        setTasks((prev) => prev.filter((t) => t.id !== tempPreviewId))
 
         if (parsed.action === 'CREATE_TASKS' || (Array.isArray(parsed.tasks) && parsed.tasks.length > 0)) {
           const taskList = parsed.tasks || []
-          setNewTaskTitle('')
 
           for (const t of taskList) {
             await handleCreateTask({
               title: t.title,
               priority: (t.priority || newPriority || 'medium').toLowerCase(),
-              category: t.category || newCategory || 'General',
-              due_date: t.due_date,
+              category: t.workspace || t.category || newCategory || 'General',
+              due_date: t.scheduled_at || t.due_date,
               duration_minutes: t.duration_minutes || 30
             })
           }
 
           sfx.playSuccess()
-          showToast(parsed.reply_summary || `Berhasil menambahkan ${taskList.length} tugas terjadwal ke kalender.`)
+          showToast(parsed.confirmation_reply || parsed.reply_summary || `Berhasil menambahkan ${taskList.length} tugas terjadwal ke kalender.`)
         } else if (parsed.action === 'SCHEDULE_EVENT') {
-          setNewTaskTitle('')
-          const startTime = parsed.start_time || new Date().toISOString()
+          const startTime = parsed.scheduled_at || parsed.start_time || new Date().toISOString()
           const endTime = parsed.end_time || new Date(new Date(startTime).getTime() + 3600000).toISOString()
 
           await api.createCalendarEvent({
             title: parsed.title || rawInput,
             startTime,
             endTime,
-            category: parsed.category || newCategory,
+            category: parsed.workspace || parsed.category || newCategory,
             priority: (parsed.priority || newPriority).toLowerCase(),
             autoMorph: true,
             isCompleted: false,
             userId: session?.user?.id
           })
           sfx.playSuccess()
-          showToast(parsed.reply_summary || `Jadwal "${parsed.title}" berhasil diatur.`)
+          showToast(parsed.confirmation_reply || parsed.reply_summary || `Jadwal "${parsed.title}" berhasil diatur.`)
           setMainTab('calendar')
         } else {
           // Standard single task fallback with validated title
@@ -458,7 +495,6 @@ export default function App() {
             showToast(validation.error, 'error')
             return
           }
-          setNewTaskTitle('')
           const defaultDue = parsed.start_time || new Date(new Date().setHours(23, 59, 0, 0)).toISOString()
           await handleCreateTask({
             title: validation.sanitized,
@@ -472,8 +508,12 @@ export default function App() {
         }
       } catch (err) {
         console.error('Failed to add task:', err)
-        setErrorMessage(`Gagal menambahkan tugas: ${err.message}`)
-        showToast(`Error: ${err.message}`, 'error')
+        setTasks((prev) => prev.filter((t) => t.id !== tempPreviewId))
+        if (err.message && err.message.includes('TIMEOUT')) {
+          showToast('⏳ Partner timeout. Jaringan lambat, coba ulangi lagi.', 'error')
+        } else {
+          showToast(`❌ Gagal memproses: ${err.message}`, 'error')
+        }
         setNewTaskTitle(rawInput)
       } finally {
         setIsSubmitting(false)
@@ -881,6 +921,54 @@ export default function App() {
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
         speakBack(replyMsg)
+      } else if (action === 'COMPLETE_TASK') {
+        const targetId = result.target_task_id
+        const targetTask = targetId
+          ? tasks.find((t) => t.id === targetId)
+          : result.title
+          ? tasks.find((t) => t.title.toLowerCase().includes(result.title.toLowerCase()))
+          : null
+
+        if (targetTask) {
+          await handleToggleTask({ ...targetTask, completed: false })
+          const replyMsg =
+            result.confirmation_reply ||
+            result.reply_summary ||
+            `Siap bro, tugas "${targetTask.title}" udah ditandai selesai!`
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${replyMsg}`)
+          showToast(`🤝 Partner: ${replyMsg}`)
+          speakBack(replyMsg)
+        } else {
+          const fallbackReply = result.confirmation_reply || result.reply_summary || 'Tugas yang dimaksud tidak ditemukan di daftar aktif.'
+          setInterimVoiceText(`⚠️ ${fallbackReply}`)
+          showToast(`🤝 Partner: ${fallbackReply}`, 'info')
+          speakBack(fallbackReply)
+        }
+      } else if (action === 'DELETE_TASK') {
+        const targetId = result.target_task_id
+        const targetTask = targetId
+          ? tasks.find((t) => t.id === targetId)
+          : result.title
+          ? tasks.find((t) => t.title.toLowerCase().includes(result.title.toLowerCase()))
+          : null
+
+        if (targetTask) {
+          await handleDeleteTask(targetTask)
+          const replyMsg =
+            result.confirmation_reply ||
+            result.reply_summary ||
+            `Siap bro, tugas "${targetTask.title}" berhasil dihapus.`
+          sfx.playSuccess()
+          setInterimVoiceText(`✓ ${replyMsg}`)
+          showToast(`🤝 Partner: ${replyMsg}`)
+          speakBack(replyMsg)
+        } else {
+          const fallbackReply = result.confirmation_reply || result.reply_summary || 'Tugas yang ingin dihapus tidak ditemukan.'
+          setInterimVoiceText(`⚠️ ${fallbackReply}`)
+          showToast(`🤝 Partner: ${fallbackReply}`, 'info')
+          speakBack(fallbackReply)
+        }
       } else if (action === 'CREATE_TASK') {
         setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
         await handleCreateTask({
@@ -954,7 +1042,7 @@ export default function App() {
         speakBack(fallbackMsg)
       }
     },
-    [session, handleCreateTask, handleClearCompleted, handleOpenFocusSession, showToast]
+    [session, tasks, handleCreateTask, handleToggleTask, handleDeleteTask, handleClearCompleted, handleOpenFocusSession, showToast]
   )
 
   // Partner Typed Command Submission (Fallback when voice is unavailable)
@@ -969,8 +1057,18 @@ export default function App() {
       setInterimVoiceText(`⚡ Memproses: "${text}"...`)
       sfx.playActivate()
 
+      const activeContextTasks = tasks
+        .filter((t) => !t.completed)
+        .slice(0, 15)
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          workspace: t.category || t.workspace || 'General',
+          time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+        }))
+
       try {
-        const { transcript, result } = await processTextCommand(text, new Date().toISOString())
+        const { transcript, result } = await processTextCommand(text, new Date().toISOString(), activeContextTasks)
         await executePartnerAction(result, transcript)
       } catch (err) {
         console.error('Partner text command error:', err)
@@ -984,7 +1082,7 @@ export default function App() {
         }, 3500)
       }
     },
-    [partnerPromptInput, executePartnerAction, showToast]
+    [partnerPromptInput, tasks, executePartnerAction, showToast]
   )
 
   // Partner Voice Agent - Direct MediaRecorder + Groq Whisper + Llama 3 Pipeline
@@ -997,15 +1095,25 @@ export default function App() {
     if (isPartnerProcessing) return
 
     if (isPartnerRecording) {
-      // Stop recording and process with Groq Whisper & Llama 3
+      // Stop recording and process with Groq Whisper & Llama 3 (with active memory)
       setIsPartnerRecording(false)
       setIsPartnerProcessing(true)
       setInterimVoiceText('⚡ Mentranskripsi via Groq Whisper...')
 
+      const activeContextTasks = tasks
+        .filter((t) => !t.completed)
+        .slice(0, 15)
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          workspace: t.category || t.workspace || 'General',
+          time: t.due_date || t.scheduled_at || 'tanpa jadwal'
+        }))
+
       try {
         const { transcript, result } = await stopAndProcessAudio((statusText) => {
           setInterimVoiceText(statusText)
-        })
+        }, new Date().toISOString(), activeContextTasks)
         await executePartnerAction(result, transcript)
       } catch (err) {
         console.warn('Partner voice error:', err.message)
@@ -1041,6 +1149,7 @@ export default function App() {
   }, [
     isPartnerRecording,
     isPartnerProcessing,
+    tasks,
     executePartnerAction,
     showToast
   ])
@@ -1568,7 +1677,7 @@ export default function App() {
                     selectedTaskIds.includes(task.id) ? 'selected' : ''
                   } ${isDragging ? 'dragging' : ''} ${isDragOverTop ? 'drag-over-top' : ''} ${
                     isDragOverBottom ? 'drag-over-bottom' : ''
-                  }`}
+                  } ${task.is_optimistic ? 'is-optimistic' : ''}`}
                 >
                   <div className="task-item-left">
                     {isDnDActive && (
@@ -1589,7 +1698,7 @@ export default function App() {
                       type="button"
                       className={`custom-checkbox-btn ${task.completed ? 'checked' : ''}`}
                       onClick={() => handleToggleTask(task)}
-                      disabled={busyTaskIds.has(task.id)}
+                      disabled={busyTaskIds.has(task.id) || task.is_optimistic}
                       role="checkbox"
                       aria-checked={task.completed}
                       aria-label={`Mark "${task.title}" as ${task.completed ? 'incomplete' : 'complete'}`}
@@ -1626,18 +1735,26 @@ export default function App() {
                           >
                             {task.title}
                           </span>
-                          <button
-                            type="button"
-                            className="btn-edit-title"
-                            onClick={() => handleStartEdit(task)}
-                            aria-label={`Edit title for "${task.title}"`}
-                            title="Edit title"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                          </button>
+                          {task.is_optimistic && (
+                            <span className="optimistic-processing-tag">
+                              <span className="pulsing-dot"></span>
+                              Memproses...
+                            </span>
+                          )}
+                          {!task.is_optimistic && (
+                            <button
+                              type="button"
+                              className="btn-edit-title"
+                              onClick={() => handleStartEdit(task)}
+                              aria-label={`Edit title for "${task.title}"`}
+                              title="Edit title"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

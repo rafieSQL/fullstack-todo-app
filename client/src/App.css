@@ -861,6 +861,46 @@
   background-color: var(--bg-active);
 }
 
+/* Optimistic Task Processing State */
+.task-item.is-optimistic {
+  opacity: 0.75;
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  background-color: rgba(245, 158, 11, 0.04);
+  pointer-events: none;
+}
+
+.optimistic-processing-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fbbf24;
+  background-color: rgba(245, 158, 11, 0.12);
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+}
+
+.pulsing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #fbbf24;
+  animation: pulseDot 1.2s infinite ease-in-out;
+}
+
+@keyframes pulseDot {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
 /* Drag-and-Drop Visual States */
 .task-item.dragging {
   opacity: 0.35;

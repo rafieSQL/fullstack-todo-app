@@ -210,19 +210,27 @@ export function cancelRecording() {
 /**
  * Process a text command directly with AI or local intent parser
  */
-export async function processTextCommand(text, currentTimeISO = new Date().toISOString()) {
+export async function processTextCommand(
+  text,
+  currentTimeISO = new Date().toISOString(),
+  activeTasks = []
+) {
   const clean = (text || '').trim()
   if (!clean) {
     throw new Error('Perintah tidak boleh kosong.')
   }
-  const result = await parseCommandWithAI(clean, currentTimeISO)
+  const result = await parseCommandWithAI(clean, currentTimeISO, null, activeTasks)
   return { transcript: clean, result }
 }
 
 /**
  * Stop recording, transcribe via Groq Whisper, and parse intent via Groq Llama 3
  */
-export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new Date().toISOString()) {
+export async function stopAndProcessAudio(
+  onStatusChange,
+  currentTimeISO = new Date().toISOString(),
+  activeTasks = []
+) {
   onStatusChange?.('⚡ Menghentikan rekaman...')
   const audioBlob = await stopRecording()
 
@@ -234,7 +242,7 @@ export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new D
   }
 
   onStatusChange?.(`🧠 Memproses: "${transcript}"...`)
-  const result = await parseCommandWithAI(transcript, currentTimeISO)
+  const result = await parseCommandWithAI(transcript, currentTimeISO, null, activeTasks)
 
   return { transcript, result }
 }

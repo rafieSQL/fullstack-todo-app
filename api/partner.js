@@ -30,7 +30,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const { transcript, clientTime, timezone } = body || {};
+    const { transcript, clientTime, timezone, activeTasks } = body || {};
 
     if (!transcript || !transcript.trim()) {
       return res.status(400).json({ error: 'Transcript is required' });
@@ -40,6 +40,11 @@ export default async function handler(req, res) {
     const userTimezone = timezone || 'Asia/Jakarta';
     const refTime = clientTime || new Date().toISOString();
 
+    const activeTasksContext =
+      Array.isArray(activeTasks) && activeTasks.length > 0
+        ? JSON.stringify(activeTasks.slice(0, 15), null, 2)
+        : '[]';
+
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
@@ -47,18 +52,26 @@ export default async function handler(req, res) {
 WAKTU SEKARANG (User): ${refTime}
 TIMEZONE: ${userTimezone}
 
-Tugasmu:
-1. Ekstrak perintah user (Bahasa Indonesia / Inggris) menjadi data task terstruktur.
-2. Hitung tanggal & jam relatif ('besok', 'nanti malam jam 8', 'selasa jam 13', 'pagi jam 7') secara akurat berdasarkan WAKTU SEKARANG dan TIMEZONE user.
-3. Dukung dekomposisi kalimat multi-tugas jika user menyebutkan lebih dari 1 tugas/jadwal ke dalam array "tasks".
-4. "workspace" / "category" pilih salah satu: "General" | "Engineering" | "Design" | "Personal".
-5. "priority" pilih salah satu: "Low" | "Medium" | "High".
-6. "scheduled_at" / "due_date" harus berupa ISO-8601 string yang valid dengan offset lokal timezone atau UTC (contoh: 2026-08-16T15:00:00+07:00).
-7. "confirmation_reply" adalah balasan suara ramah, ringkas, dan natural khas Partner (contoh: "Siap bro, tugas siapkan laporan jam 3 sore udah masuk kalender.").
+DAFTAR TUGAS AKTIF SAAT INI (Konteks Memory):
+${activeTasksContext}
+
+ATURAN COCOK TUGAS & AKSI:
+1. Jika user ingin menyelesaikan tugas (contoh: "selesaikan tugas laporan", "tandai meeting tadi kelar", "tugas belajar udah beres"):
+   Cari task yang paling relevan dari DAFTAR TUGAS AKTIF, masukkan ID-nya ke 'target_task_id' dan pilih action 'COMPLETE_TASK'.
+2. Jika user ingin menghapus/membatalkan tugas (contoh: "hapus tugas laporan", "batalkan jadwal meeting"):
+   Cari task yang cocok dari DAFTAR TUGAS AKTIF, masukkan ID-nya ke 'target_task_id' dan pilih action 'DELETE_TASK'.
+3. Jika user ingin membuat tugas atau jadwal baru, pilih action 'CREATE_TASKS'.
+4. Hitung tanggal & jam relatif ('besok', 'nanti malam jam 8', 'selasa jam 13', 'pagi jam 7') secara akurat berdasarkan WAKTU SEKARANG dan TIMEZONE user.
+5. "workspace" / "category" pilih salah satu: "General" | "Engineering" | "Design" | "Personal".
+6. "priority" pilih salah satu: "Low" | "Medium" | "High".
+7. "scheduled_at" / "due_date" harus berupa ISO-8601 string yang valid dengan offset lokal timezone (contoh: 2026-08-16T15:00:00+07:00).
+8. "confirmation_reply" adalah balasan suara ramah, ringkas, dan natural khas Partner (contoh: "Siap bro, tugas laporan keuangan udah ditandai selesai!").
+9. "is_ambiguous": Set true jika perintah user kurang jelas atau ambigu.
 
 Return STRICT JSON matching this schema:
 {
-  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "action": "CREATE_TASKS" | "COMPLETE_TASK" | "DELETE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "target_task_id": "ID task dari DAFTAR TUGAS AKTIF jika COMPLETE_TASK atau DELETE_TASK, selain itu null",
   "title": "Judul ringkas tugas utama",
   "workspace": "General" | "Engineering" | "Design" | "Personal",
   "category": "General" | "Engineering" | "Design" | "Personal",
@@ -66,8 +79,9 @@ Return STRICT JSON matching this schema:
   "scheduled_at": "ISO-8601 string or null",
   "due_date": "ISO-8601 string or null",
   "duration_minutes": 30,
-  "confirmation_reply": "Balasan singkat dan natural",
-  "reply_summary": "Balasan singkat dan natural",
+  "is_ambiguous": false,
+  "confirmation_reply": "Balasan singkat dan natural khas Partner",
+  "reply_summary": "Balasan singkat dan natural khas Partner",
   "tasks": [
     {
       "title": "Judul tugas",
