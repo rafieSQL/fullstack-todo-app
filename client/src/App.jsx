@@ -11,6 +11,8 @@ import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
 import {
+  startRecording,
+  stopRecording,
   startVoiceListening,
   stopVoiceListening,
   isRecordingSupported,
@@ -1085,7 +1087,7 @@ export default function App() {
     [partnerPromptInput, tasks, executePartnerAction, showToast]
   )
 
-  // Partner Voice Agent - Continuous Speech with 3-Second Silence Detection & 60s Max Safety Net
+  // Partner Voice Agent - Click Start / Click Stop Native Recording with Gemini Audio Transcription
   const handleTogglePartner = useCallback(async () => {
     if (!isRecordingSupported()) {
       setIsPartnerTextPromptOpen(true)
@@ -1093,14 +1095,6 @@ export default function App() {
     }
 
     if (isPartnerProcessing) return
-
-    if (isPartnerRecording) {
-      // User clicked manually to stop listening early
-      setIsPartnerRecording(false)
-      stopVoiceListening()
-      sfx.playDeactivate()
-      return
-    }
 
     const activeContextTasks = tasks
       .filter((t) => !t.completed)
@@ -1112,79 +1106,69 @@ export default function App() {
         time: t.due_date || t.scheduled_at || 'tanpa jadwal'
       }))
 
-    try {
+    if (!isPartnerRecording) {
       setIsPartnerRecording(true)
       setIsPartnerProcessing(false)
-      setInterimVoiceText('🎙️ Mendengarkan suara Anda... (Bicara sekarang)')
       sfx.playActivate()
-      showToast('🎙️ Partner mendengarkan... (Berhenti otomatis saat Anda diam 3 detik)')
+      showToast('🎙️ Merekam suara... Klik tombol mic lagi jika sudah selesai.')
 
-      startVoiceListening({
-        silenceTimeoutMs: 3000,
-        maxDurationMs: 60000,
-        onTranscriptChange: (liveText) => {
-          setInterimVoiceText(`🗣️ "${liveText}"`)
-        },
-        onStatusChange: (statusText) => {
-          setInterimVoiceText(statusText)
-        },
-        onComplete: async (finalTranscript) => {
-          setIsPartnerRecording(false)
-          setIsPartnerProcessing(true)
-          setInterimVoiceText(`🧠 Memproses: "${finalTranscript}"...`)
-
-          try {
-            const result = await parseCommandWithAI(
-              finalTranscript,
-              new Date().toISOString(),
-              null,
-              activeContextTasks
-            )
-            await executePartnerAction(result, finalTranscript)
-          } catch (err) {
-            console.warn('Partner parse error:', err.message)
-            sfx.playDeactivate()
-            if (err.message && err.message.includes('TIMEOUT')) {
-              showToast('⏳ Partner timeout. Jaringan lambat, coba ulangi lagi.', 'error')
-            } else {
-              showToast(`❌ ${err.message || 'Gagal memproses suara'}`, 'error')
-            }
-            setInterimVoiceText(`Error: ${err.message}`)
-          } finally {
-            setIsPartnerRecording(false)
-            setIsPartnerProcessing(false)
-            setTimeout(() => {
-              setInterimVoiceText('')
-            }, 3500)
-          }
-        },
+      await startRecording({
+        onStatusChange: (status) => setInterimVoiceText(status),
         onError: (err) => {
-          console.warn('Partner voice error:', err.message)
           setIsPartnerRecording(false)
           setIsPartnerProcessing(false)
           sfx.playDeactivate()
           setIsPartnerTextPromptOpen(true)
-
-          if (
-            err.name === 'NetworkError' ||
-            err.message?.includes('network') ||
-            err.message?.includes('Gangguan koneksi')
-          ) {
-            showToast('⚠️ Gangguan koneksi suara ke browser. Silakan ketik perintah secara manual.', 'warning')
-          } else {
-            showToast(`Partner Voice: ${err.message || 'Ketik perintah Anda di bawah'}.`, 'info')
-          }
-
+          showToast(err.message || 'Gagal merekam suara.', 'warning')
           setInterimVoiceText('Ketik perintah Anda pada kotak Partner...')
         }
       })
-    } catch (err) {
-      console.warn('Partner recording start error:', err.message)
-      sfx.playDeactivate()
-      setIsPartnerTextPromptOpen(true)
-      showToast(err.message || 'Gagal mengakses mikrofon', 'error')
+    } else {
       setIsPartnerRecording(false)
-      setIsPartnerProcessing(false)
+      setIsPartnerProcessing(true)
+      setInterimVoiceText('⏳ Memproses audio via Gemini...')
+      sfx.playDeactivate()
+
+      const transcribedText = await stopRecording({
+        onStatusChange: (status) => setInterimVoiceText(status),
+        onError: (err) => {
+          showToast(err.message || 'Gagal mentranskripsi.', 'warning')
+        }
+      })
+
+      if (transcribedText && transcribedText.trim()) {
+        setInterimVoiceText(`🧠 Memproses: "${transcribedText}"...`)
+        try {
+          const result = await parseCommandWithAI(
+            transcribedText,
+            new Date().toISOString(),
+            null,
+            activeContextTasks
+          )
+          await executePartnerAction(result, transcribedText)
+        } catch (err) {
+          console.warn('Partner parse error:', err.message)
+          sfx.playDeactivate()
+          if (err.message && err.message.includes('TIMEOUT')) {
+            showToast('⏳ Partner timeout. Jaringan lambat, coba ulangi lagi.', 'error')
+          } else {
+            showToast(`❌ ${err.message || 'Gagal memproses suara'}`, 'error')
+          }
+          setInterimVoiceText(`Error: ${err.message}`)
+        } finally {
+          setIsPartnerProcessing(false)
+          setTimeout(() => {
+            setInterimVoiceText('')
+          }, 3500)
+        }
+      } else {
+        setIsPartnerProcessing(false)
+        setInterimVoiceText('Suara tidak terdeteksi. Silakan coba lagi.')
+        showToast('Suara tidak terdengar jelas, silakan coba lagi.', 'info')
+        setTimeout(() => {
+          setInterimVoiceText('')
+        }, 3000)
+      }
     }
   }, [
     isPartnerRecording,
