@@ -11,10 +11,8 @@ import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
 import {
-  startRecording,
-  stopRecording,
-  isRecordingSupported,
-  sendAudioToPartnerVoice
+  listenAndProcessSpeech,
+  isSpeechRecognitionSupported
 } from './utils/audioRecorder.js'
 import './App.css'
 
@@ -794,133 +792,103 @@ export default function App() {
   )
 
   // Partner Ambient Voice Agent Toggle & Serverless Audio Pipeline
+  // Partner Voice Agent - Direct Speech-to-LLM Pipeline (Browser SpeechRecognition + Groq Llama 3)
   const handleTogglePartner = useCallback(async () => {
-    if (!isRecordingSupported()) {
+    if (!isSpeechRecognitionSupported()) {
       showToast(
-        'Audio recording is not supported in this browser (Chrome / Edge / Firefox recommended).',
+        'Browser Anda belum mendukung Speech Recognition. Gunakan Chrome atau Edge.',
         'error'
       )
       return
     }
 
-    // Prevent duplicate triggers if currently uploading or reasoning
-    if (isPartnerProcessing) return
+    if (isPartnerRecording || isPartnerProcessing) return
 
-    if (isPartnerRecording) {
-      // 1. Stop recording and collect audio blob
+    setIsPartnerRecording(true)
+    setIsPartnerProcessing(false)
+    setInterimVoiceText('🎙️ Mendengarkan suara Anda...')
+    sfx.playActivate()
+
+    try {
+      const data = await listenAndProcessSpeech((statusText) => {
+        setInterimVoiceText(statusText)
+      })
+
       setIsPartnerRecording(false)
       setIsPartnerProcessing(true)
-      setInterimVoiceText('⚡ Partner is processing audio...')
 
-      try {
-        const recordingResult = await stopRecording()
-        const audioBlob =
-          recordingResult instanceof Blob
-            ? recordingResult
-            : recordingResult?.audioBlob || recordingResult
+      const result = data?.result || {}
+      const transcript = data?.transcript || ''
+      const action = result.action || 'UNKNOWN'
 
-        if (!audioBlob || audioBlob.size === 0) {
-          setIsPartnerProcessing(false)
-          setInterimVoiceText('')
-          sfx.playDeactivate()
-          showToast('No audio captured. Please speak into the mic before stopping.', 'error')
-          return
-        }
+      if (action === 'CREATE_TASK') {
+        setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
+        await handleCreateTask({
+          title: result.title,
+          priority: (result.priority || 'Medium').toLowerCase(),
+          category: result.category || 'General'
+        })
+        sfx.playSuccess()
+        setInterimVoiceText(`✓ ${result.reply_summary || `Created: "${result.title}"`}`)
+        showToast(`🤝 Partner: ${result.reply_summary || `Task "${result.title}" created.`}`)
+      } else if (action === 'SCHEDULE_EVENT') {
+        setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
+        const startTime = result.start_time || new Date().toISOString()
+        const endTime =
+          result.end_time ||
+          new Date(new Date(startTime).getTime() + 3600000).toISOString()
 
-        // Send Audio Blob directly to Groq Whisper & Llama 3 API (Client Direct)
-        const data = await sendAudioToPartnerVoice(
-          audioBlob,
-          new Date().toISOString()
-        )
-
-        const result = data?.result || {}
-        const transcript = data?.transcript || ''
-        const action = result.action || 'UNKNOWN'
-
-        if (action === 'CREATE_TASK') {
-          setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
-          await handleCreateTask({
-            title: result.title,
-            priority: (result.priority || 'Medium').toLowerCase(),
-            category: result.category || 'General'
-          })
-          sfx.playSuccess()
-          setInterimVoiceText(`✓ ${result.reply_summary || `Created: "${result.title}"`}`)
-          showToast(`🤝 Partner: ${result.reply_summary || `Task "${result.title}" created.`}`)
-        } else if (action === 'SCHEDULE_EVENT') {
-          setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
-          const startTime = result.start_time || new Date().toISOString()
-          const endTime =
-            result.end_time ||
-            new Date(new Date(startTime).getTime() + 3600000).toISOString()
-
-          await api.createCalendarEvent({
-            title: result.title,
-            startTime,
-            endTime,
-            category: result.category || 'General',
-            priority: (result.priority || 'Medium').toLowerCase(),
-            autoMorph: true,
-            isCompleted: false,
-            userId: session?.user?.id
-          })
-          sfx.playSuccess()
-          setMainTab('calendar')
-          setInterimVoiceText(`✓ ${result.reply_summary || `Scheduled: "${result.title}"`}`)
-          showToast(`🤝 Partner: ${result.reply_summary || `Scheduled "${result.title}".`}`)
-        } else if (action === 'NAVIGATE') {
-          sfx.playSuccess()
-          const targetView = result.target_view || 'tasks'
-          if (targetView === 'focus') {
-            handleOpenFocusSession()
-          } else {
-            setMainTab(targetView)
-          }
-          setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
-          showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
-        } else if (action === 'CLEAR_COMPLETED') {
-          setInterimVoiceText('⚡ Purging completed tasks...')
-          await handleClearCompleted()
-          sfx.playSuccess()
-          setInterimVoiceText(`✓ ${result.reply_summary || 'Cleared completed tasks'}`)
-          showToast(`🤝 Partner: ${result.reply_summary || 'Cleared completed tasks.'}`)
+        await api.createCalendarEvent({
+          title: result.title,
+          startTime,
+          endTime,
+          category: result.category || 'General',
+          priority: (result.priority || 'Medium').toLowerCase(),
+          autoMorph: true,
+          isCompleted: false,
+          userId: session?.user?.id
+        })
+        sfx.playSuccess()
+        setMainTab('calendar')
+        setInterimVoiceText(`✓ ${result.reply_summary || `Scheduled: "${result.title}"`}`)
+        showToast(`🤝 Partner: ${result.reply_summary || `Scheduled "${result.title}".`}`)
+      } else if (action === 'NAVIGATE') {
+        sfx.playSuccess()
+        const targetView = result.target_view || 'tasks'
+        if (targetView === 'focus') {
+          handleOpenFocusSession()
         } else {
-          setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
-          showToast(
-            `🤝 Partner: ${
-              result.reply_summary ||
-              (transcript ? `"${transcript}"` : 'Perintah tidak dikenali.')
-            }`,
-            'info'
-          )
+          setMainTab(targetView)
         }
-      } catch (err) {
-        console.error('Partner voice processing error:', err)
-        sfx.playDeactivate()
-        showToast(`Partner error: ${err.message}`, 'error')
-        setInterimVoiceText(`Error: ${err.message}`)
-      } finally {
-        setIsPartnerProcessing(false)
-        setTimeout(() => {
-          setInterimVoiceText('')
-        }, 3500)
+        setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
+        showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
+      } else if (action === 'CLEAR_COMPLETED') {
+        setInterimVoiceText('⚡ Purging completed tasks...')
+        await handleClearCompleted()
+        sfx.playSuccess()
+        setInterimVoiceText(`✓ ${result.reply_summary || 'Cleared completed tasks'}`)
+        showToast(`🤝 Partner: ${result.reply_summary || 'Cleared completed tasks.'}`)
+      } else {
+        setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
+        showToast(
+          `🤝 Partner: ${
+            result.reply_summary ||
+            (transcript ? `"${transcript}"` : 'Perintah tidak dikenali.')
+          }`,
+          'info'
+        )
       }
-    } else {
-      // Start recording raw audio
-      try {
-        await startRecording()
-        setIsPartnerRecording(true)
-        setIsPartnerProcessing(false)
-        setInterimVoiceText('🎙️ Recording voice note... Speak your task/schedule.')
-        sfx.playActivate()
-        showToast('🎙️ Partner is recording voice note... Speak your task/schedule.')
-      } catch (err) {
-        console.error('Microphone start error:', err)
-        showToast(err.message, 'error')
-        setIsPartnerRecording(false)
-        setIsPartnerProcessing(false)
+    } catch (err) {
+      console.error('Partner voice processing error:', err)
+      sfx.playDeactivate()
+      showToast(err.message, 'error')
+      setInterimVoiceText(`Error: ${err.message}`)
+    } finally {
+      setIsPartnerRecording(false)
+      setIsPartnerProcessing(false)
+      setTimeout(() => {
         setInterimVoiceText('')
-      }
+      }, 3500)
     }
   }, [
     isPartnerRecording,

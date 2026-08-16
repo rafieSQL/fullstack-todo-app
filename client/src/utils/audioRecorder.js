@@ -1,192 +1,129 @@
 /**
- * Partner Clean Audio Recorder & Vercel Serverless Bridge
- * Captures raw microphone audio via MediaRecorder and sends base64 payload to /api/partner-voice.
+ * Client-Side Voice Partner Engine (Direct Text-to-LLM Pipeline)
+ * Native browser speech recognition + direct Groq Llama 3 Chat Completions.
+ * Zero audio blob uploads. Zero backend dependencies. 100% CORS-safe.
  */
 
-let mediaStream = null
-let mediaRecorder = null
-let audioChunks = []
-let isRecordingState = false
+export function isSpeechRecognitionSupported() {
+  if (typeof window === 'undefined') return false
+  return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+}
 
 export function isRecordingSupported() {
-  if (typeof window === 'undefined') return false
-  return Boolean(
-    window.navigator &&
-      window.navigator.mediaDevices &&
-      typeof window.navigator.mediaDevices.getUserMedia === 'function' &&
-      typeof window.MediaRecorder === 'function'
-  )
-}
-
-function getSupportedMimeType() {
-  if (typeof MediaRecorder === 'undefined') return 'audio/webm'
-
-  const types = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/mp4',
-    'audio/wav'
-  ]
-
-  for (const type of types) {
-    if (MediaRecorder.isTypeSupported(type)) {
-      return type
-    }
-  }
-
-  return 'audio/webm'
+  return isSpeechRecognitionSupported()
 }
 
 /**
- * Start recording raw microphone audio
+ * Captures speech from the browser microphone and directly processes
+ * intent via Groq Chat Completions API.
  */
-export async function startRecording() {
-  if (!isRecordingSupported()) {
-    throw new Error('Audio recording is not supported in this browser.')
+export async function listenAndProcessSpeech(onStatusChange) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+
+  if (!SpeechRecognition) {
+    throw new Error('Browser Anda belum mendukung Speech Recognition. Gunakan Chrome atau Edge.')
   }
 
-  cancelRecording()
-
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true
-      }
-    })
-
-    const mimeType = getSupportedMimeType()
-    mediaRecorder = new MediaRecorder(mediaStream, { mimeType })
-    audioChunks = []
-
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        audioChunks.push(event.data)
-      }
-    }
-
-    mediaRecorder.start(100) // Chunk every 100ms
-    isRecordingState = true
-    return { mimeType }
-  } catch (error) {
-    isRecordingState = false
-    cancelRecording()
-    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-      throw new Error(
-        'Microphone access was denied. Please allow microphone permissions in your browser settings.'
-      )
-    }
-    throw error
+  const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
+  if (!apiKey) {
+    throw new Error('VITE_GROQ_API_KEY belum dipasang di .env / Vercel Environment Variables.')
   }
-}
 
-/**
- * Stop recording and return a single combined audio Blob
- */
-export function stopRecording() {
   return new Promise((resolve, reject) => {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-      cancelRecording()
-      reject(new Error('No audio captured. Please speak into the mic before stopping.'))
+    let recognition
+    try {
+      recognition = new SpeechRecognition()
+    } catch (err) {
+      reject(new Error(`Failed to initialize Speech Recognition: ${err.message}`))
       return
     }
 
-    mediaRecorder.onstop = () => {
-      // Always stop tracks to release mic hardware & avoid memory leaks
-      if (mediaStream) {
-        try {
-          mediaStream.getTracks().forEach((track) => track.stop())
-        } catch {
-          // ignore
-        }
-        mediaStream = null
-      }
+    recognition.lang = 'id-ID'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.continuous = false
 
-      const mimeType = mediaRecorder ? mediaRecorder.mimeType : getSupportedMimeType()
-      const audioBlob = new Blob(audioChunks, { type: mimeType })
-      audioChunks = []
-      isRecordingState = false
+    onStatusChange?.('🎙️ Mendengarkan suara Anda...')
 
-      if (!audioBlob || audioBlob.size === 0) {
-        reject(new Error('No audio captured. Please speak into the mic before stopping.'))
+    recognition.onresult = async (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim() || ''
+      if (!transcript) {
+        reject(new Error('Tidak ada suara terdengar. Silakan coba bicara lagi.'))
         return
       }
 
-      resolve(audioBlob)
-    }
+      onStatusChange?.(`⚡ Memproses: "${transcript}"...`)
 
-    mediaRecorder.onerror = (event) => {
-      cancelRecording()
-      reject(event.error || new Error('Recording error occurred.'))
-    }
-
-    // Force dump any buffered audio before stopping
-    try {
-      if (mediaRecorder.state !== 'inactive') {
-        mediaRecorder.requestData()
-        mediaRecorder.stop()
-      }
-    } catch {
-      cancelRecording()
-      reject(new Error('No audio captured. Please speak into the mic before stopping.'))
-    }
-  })
-}
-
-/**
- * Cancel and cleanly release microphone stream tracks
- */
-export function cancelRecording() {
-  isRecordingState = false
-  if (mediaStream) {
-    try {
-      mediaStream.getTracks().forEach((track) => track.stop())
-    } catch {
-      // ignore
-    }
-    mediaStream = null
-  }
-  mediaRecorder = null
-  audioChunks = []
-}
-
-export function isRecording() {
-  return isRecordingState
-}
-
-/**
- * Send audio blob to Vercel Serverless Function (/api/partner-voice)
- */
-export async function sendAudioToPartnerVoice(audioBlob, currentTimeISO) {
-  if (!audioBlob || audioBlob.size === 0) {
-    throw new Error('No audio captured. Please speak into the mic before stopping.')
-  }
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(audioBlob)
-    reader.onloadend = async () => {
       try {
-        const base64Data = reader.result.split(',')[1]
-        const response = await fetch('/api/partner-voice', {
+        // Send pure text to Groq LLM (CORS-safe standard REST JSON)
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify({
-            audioBase64: base64Data,
-            currentTimeISO: currentTimeISO || new Date().toISOString()
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              {
+                role: 'system',
+                content: `You are an elite productivity AI. Reference ISO time: ${new Date().toISOString()}.
+Parse the user's natural language command (Indonesian/English) into STRICT JSON ONLY without markdown backticks:
+{
+  "action": "CREATE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "title": "Clean extracted title",
+  "start_time": "ISO-8601 string or null",
+  "end_time": "ISO-8601 string or null",
+  "priority": "High" | "Medium" | "Low",
+  "category": "General" | "Engineering" | "Design" | "Personal",
+  "target_view": "calendar" | "tasks" | "focus" | null,
+  "reply_summary": "Pesan konfirmasi singkat bahasa Indonesia"
+}`
+              },
+              { role: 'user', content: transcript }
+            ],
+            temperature: 0.1
           })
         })
 
-        const data = await response.json()
         if (!response.ok) {
-          throw new Error(data.error || `Server responded with ${response.status}`)
+          const errBody = await response.text()
+          throw new Error(`Groq API returned ${response.status}: ${errBody}`)
         }
-        resolve(data)
+
+        const data = await response.json()
+        const rawContent = (data.choices?.[0]?.message?.content || '{}')
+          .replace(/```(?:json)?|```/g, '')
+          .trim()
+
+        let parsed
+        try {
+          parsed = JSON.parse(rawContent)
+        } catch {
+          const match = rawContent.match(/\{[\s\S]*\}/)
+          parsed = match ? JSON.parse(match[0]) : { action: 'UNKNOWN', reply_summary: rawContent }
+        }
+
+        resolve({ transcript, result: parsed })
       } catch (err) {
         reject(err)
       }
     }
-    reader.onerror = () => reject(new Error('Failed to read recorded audio'))
+
+    recognition.onerror = (event) => {
+      if (event.error === 'no-speech') {
+        reject(new Error('Tidak ada suara terdengar. Silakan coba bicara lagi.'))
+      } else if (event.error === 'not-allowed') {
+        reject(new Error('Izin mikrofon ditolak browser.'))
+      } else {
+        reject(new Error(`Speech error: ${event.error}`))
+      }
+    }
+
+    try {
+      recognition.start()
+    } catch (err) {
+      reject(err)
+    }
   })
 }
