@@ -67,58 +67,71 @@ export default async function handler(req, res) {
       transcript: incomingTranscript,
       clientTime,
       timezone,
-      tasks: incomingTasks,
-      activeTasks,
-      existingTasks
+      tasks = [],
+      activeTasks = [],
+      existingTasks = []
     } = body || {};
 
-    const rawTranscript = (message || incomingTranscript || '').trim();
+    const rawMessage = (message || incomingTranscript || '').trim();
 
-    if (!rawTranscript) {
-      return res.status(400).json({ error: 'Message or transcript is required' });
+    if (!rawMessage) {
+      return res.status(400).json({ error: 'Message is required' });
     }
 
     const userTimezone = timezone || 'Asia/Jakarta';
     const refTime = clientTime || new Date().toISOString();
 
-    const rawTasks = incomingTasks || activeTasks || existingTasks || [];
-    const tasksCleanList = Array.isArray(rawTasks)
-      ? rawTasks.slice(0, 20).map((t) => ({
-          id: t.id || t._id,
-          title: t.title,
-          completed: Boolean(t.completed)
-        }))
-      : [];
+    const rawTasks = tasks.length > 0 ? tasks : activeTasks.length > 0 ? activeTasks : existingTasks;
+    const simplifiedTasks = rawTasks.slice(0, 20).map((t) => ({
+      id: t.id || t._id,
+      title: t.title || t.text,
+      completed: Boolean(t.completed)
+    }));
 
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
-    const systemInstruction = `Daftar Tugas Pengguna Saat Ini:
-${JSON.stringify(tasksCleanList, null, 2)}
-
+    const systemInstruction = `Kamu adalah AI asisten to-do list cerdas berbahasa Indonesia santai/ramah.
 WAKTU SEKARANG: ${refTime} (${userTimezone})
 
-ATURAN UTAMA:
-- Jika user mengatakan "hapus", "buang", "delete", "batalkan", atau "hilangkan [nama tugas]":
-  Action = "DELETE_TASK", target_task_id = <ID tugas yang cocok dari daftar di atas>. JANGAN PERNAH CREATE!
-- Jika user mengatakan "selesai", "sudah", "beres", "done", "kelar", "centang", atau "tandai [nama tugas]":
-  Action = "COMPLETE_TASK", target_task_id = <ID tugas yang cocok dari daftar di atas>. JANGAN PERNAH CREATE!
-- HANYA gunakan action "CREATE_TASK" atau "CREATE_TASKS" jika user ingin mencatat to-do baru yang belum ada.
+DAFTAR TUGAS AKTIF PENGGUNA SAAT INI:
+${JSON.stringify(simplifiedTasks, null, 2)}
 
-Format JSON Output:
+ATURAN PENENTUAN AKSI:
+1. AKSI "COMPLETE_TASK":
+   - Jika pengguna ingin menyelesaikan / mencentang tugas (misal: "selesaikan [nama]", "udah kelar [nama]", "centang [nama]", "ubah [nama] jadi selesai").
+   - Cari item dengan judul paling mirip di daftar tugas di atas, ambil 'id'-nya sebagai 'target_task_id'.
+
+2. AKSI "DELETE_TASK":
+   - Jika pengguna ingin menghapus tugas (misal: "hapus [nama]", "buang [nama]", "delete [nama]").
+   - Cari item dengan judul paling mirip di daftar tugas di atas, ambil 'id'-nya sebagai 'target_task_id'.
+
+3. AKSI "CREATE_TASK":
+   - Jika pengguna ingin menambahkan to-do baru (misal: "ingatkan saya untuk...", "tambah tugas...", "bikin to-do...").
+   - Isi field 'taskData' dengan properti: title, priority (Low/Medium/High), category (General/Engineering/Design/Personal), scheduled_at (ISO-8601).
+
+4. AKSI "CHAT":
+   - Jika pengguna hanya menyapa, bertanya status tugas, atau mengobrol santai.
+
+FORMAT KELUARAN WAJIB JSON VALID:
 {
-  "action": "DELETE_TASK" | "COMPLETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "QUERY",
-  "target_task_id": "string id atau null",
-  "targetId": "string id atau null",
-  "title": "Judul tugas jika create baru",
+  "action": "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "CHAT",
+  "target_task_id": "ID_TUGAS_ATAU_NULL",
+  "targetId": "ID_TUGAS_ATAU_NULL",
+  "taskData": {
+    "title": "string",
+    "priority": "Low" | "Medium" | "High",
+    "category": "General" | "Engineering" | "Design" | "Personal",
+    "scheduled_at": "ISO-8601 string or null"
+  },
+  "title": "string",
+  "priority": "Low" | "Medium" | "High",
   "workspace": "General" | "Engineering" | "Design" | "Personal",
   "category": "General" | "Engineering" | "Design" | "Personal",
-  "priority": "Low" | "Medium" | "High",
   "scheduled_at": "ISO-8601 string or null",
   "due_date": "ISO-8601 string or null",
-  "duration_minutes": 30,
-  "reply": "Pesan konfirmasi singkat khas Partner",
-  "confirmation_reply": "Pesan konfirmasi singkat khas Partner"
+  "reply": "Kalimat konfirmasi santai dan singkat untuk diucapkan ke user",
+  "confirmation_reply": "Kalimat konfirmasi santai dan singkat untuk diucapkan ke user"
 }`;
 
     // Option A: Gemini API (if GEMINI_API_KEY is available)
@@ -130,8 +143,7 @@ Format JSON Output:
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: rawTranscript }] }],
-              systemInstruction: { parts: [{ text: systemInstruction }] },
+              contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nPesan Pengguna: "${rawMessage}"\n\nRespon JSON:` }] }],
               generationConfig: {
                 responseMimeType: 'application/json',
                 temperature: 0.1
@@ -142,50 +154,66 @@ Format JSON Output:
 
         if (geminiRes.ok) {
           const geminiData = await geminiRes.json();
-          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            const parsed = JSON.parse(text);
-            return res.status(200).json({ success: true, data: parsed });
-          }
+          let rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
+          rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsedResult = JSON.parse(rawText);
+          return res.status(200).json({
+            success: true,
+            data: parsedResult,
+            ...parsedResult
+          });
         }
       } catch (geminiErr) {
-        console.warn('Gemini route error, falling back to Groq:', geminiErr.message);
+        console.warn('Gemini route error, trying Groq:', geminiErr.message);
       }
     }
 
     // Option B: Groq Llama 3 (if GROQ_API_KEY is available)
     if (groqKey) {
-      const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${groqKey.trim()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: `User Command: "${rawTranscript}"` }
-          ],
-          temperature: 0.1,
-          response_format: { type: 'json_object' }
-        })
-      });
+      try {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${groqKey.trim()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: systemInstruction },
+              { role: 'user', content: `Pesan Pengguna: "${rawMessage}"` }
+            ],
+            temperature: 0.1,
+            response_format: { type: 'json_object' }
+          })
+        });
 
-      if (groqRes.ok) {
-        const groqData = await groqRes.json();
-        const content = groqData.choices?.[0]?.message?.content;
-        if (content) {
-          const parsed = JSON.parse(content);
-          return res.status(200).json({ success: true, data: parsed });
+        if (groqRes.ok) {
+          const groqData = await groqRes.json();
+          const content = groqData.choices?.[0]?.message?.content;
+          if (content) {
+            const parsedResult = JSON.parse(content);
+            return res.status(200).json({
+              success: true,
+              data: parsedResult,
+              ...parsedResult
+            });
+          }
         }
+      } catch (groqErr) {
+        console.warn('Groq route error:', groqErr.message);
       }
     }
 
-    return res.status(500).json({
-      error: 'No AI API Key (GEMINI_API_KEY or GROQ_API_KEY) configured on server.'
+    return res.status(200).json({
+      action: 'CHAT',
+      reply: 'Ada kendala teknis saat memproses permintaanmu, coba ulangi lagi ya.'
     });
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Internal Partner Error' });
+    console.error('Partner API Error:', error);
+    return res.status(200).json({
+      action: 'CHAT',
+      reply: 'Ada kendala teknis saat memproses permintaanmu, coba ulangi lagi ya.'
+    });
   }
 }
