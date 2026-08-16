@@ -366,6 +366,50 @@ export default function App() {
     [newTaskTitle, newPriority, newCategory, isSubmitting, session, showToast, loadActivities]
   )
 
+  // Direct programmatic task creation helper for components (e.g. Chronos Calendar sidebar)
+  const handleCreateTask = useCallback(
+    async ({ title, priority = 'medium', category = 'General' }) => {
+      const validation = validateTaskTitle(title)
+      if (!validation.isValid) {
+        showToast(validation.error, 'error')
+        throw new Error(validation.error)
+      }
+
+      const sanitizedTitle = validation.sanitized
+      const tempId = `temp-${Date.now()}`
+      const optimisticTask = {
+        id: tempId,
+        title: sanitizedTitle,
+        priority,
+        category,
+        order: 0,
+        completed: false,
+        created_at: new Date().toISOString()
+      }
+
+      setTasks((prev) => [optimisticTask, ...prev])
+
+      try {
+        const createdTask = await api.createTask({
+          title: sanitizedTitle,
+          priority,
+          category,
+          userId: session?.user?.id
+        })
+        setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
+        showToast(`Created task: "${sanitizedTitle}"`)
+        loadActivities()
+        return createdTask
+      } catch (err) {
+        console.error('Failed to create task:', err)
+        setTasks((prev) => prev.filter((t) => t.id !== tempId))
+        showToast(`Failed to add task: ${err.message}`, 'error')
+        throw err
+      }
+    },
+    [session, showToast, loadActivities]
+  )
+
   // Toggle Task Completion with Spam-Click Protection & Busy Lock
   const handleToggleTask = useCallback(
     async (task) => {
@@ -939,6 +983,7 @@ export default function App() {
           tasks={tasks}
           onStartFocusSession={(targetTask) => handleOpenFocusSession(targetTask)}
           onToggleTask={handleToggleTask}
+          onCreateTask={handleCreateTask}
           user={session?.user}
           showToast={showToast}
         />

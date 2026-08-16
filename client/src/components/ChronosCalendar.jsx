@@ -4,6 +4,7 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  createTask,
   logActivity
 } from '../api.js'
 import { supabase, isSupabaseConfigured } from '../supabaseClient.js'
@@ -30,6 +31,7 @@ export default function ChronosCalendar({
   tasks = [],
   onStartFocusSession,
   onToggleTask,
+  onCreateTask,
   user = null,
   showToast = () => {}
 }) {
@@ -40,6 +42,12 @@ export default function ChronosCalendar({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [isSidebarDragOver, setIsSidebarDragOver] = useState(false)
+
+  // In-Sidebar Quick Task Creator State
+  const [quickTitle, setQuickTitle] = useState('')
+  const [quickCategory, setQuickCategory] = useState('General')
+  const [quickPriority, setQuickPriority] = useState('medium')
+  const [isCreatingQuickTask, setIsCreatingQuickTask] = useState(false)
 
   // Drag-and-drop state
   const [draggedTask, setDraggedTask] = useState(null)
@@ -195,6 +203,38 @@ export default function ChronosCalendar({
     }
     return list
   }, [tasks, events, sidebarSearch])
+
+  // In-Sidebar Quick Task Submission Handler
+  const handleQuickTaskSubmit = async (e) => {
+    e.preventDefault()
+    const trimmed = quickTitle.trim()
+    if (!trimmed || isCreatingQuickTask) return
+
+    setIsCreatingQuickTask(true)
+    try {
+      if (onCreateTask) {
+        await onCreateTask({
+          title: trimmed,
+          priority: quickPriority,
+          category: quickCategory
+        })
+      } else {
+        await createTask({
+          title: trimmed,
+          priority: quickPriority,
+          category: quickCategory,
+          userId: user?.id
+        })
+        showToast(`Created task: "${trimmed}"`)
+      }
+      setQuickTitle('')
+    } catch (err) {
+      console.error('Failed to add quick task in calendar sidebar:', err)
+      showToast(err.message || 'Failed to create task.', 'error')
+    } finally {
+      setIsCreatingQuickTask(false)
+    }
+  }
 
   // Date Navigation Handlers
   const handlePrev = () => {
@@ -768,6 +808,7 @@ export default function ChronosCalendar({
                 />
               </div>
 
+              {/* Scrollable Tasks Sub-List */}
               <div className="chronos-sidebar-content">
                 {unassignedTasks.length === 0 ? (
                   <div style={{ fontSize: '11px', color: '#71717a', fontStyle: 'italic', padding: '10px 4px' }}>
@@ -794,6 +835,68 @@ export default function ChronosCalendar({
                   ))
                 )}
               </div>
+
+              {/* Sticky / Pinned In-Sidebar Quick Task Creator */}
+              <form className="chronos-sidebar-quick-add" onSubmit={handleQuickTaskSubmit}>
+                <div className="chronos-quick-input-row">
+                  <input
+                    type="text"
+                    className="chronos-quick-add-input"
+                    placeholder="+ New task (Enter ↵)"
+                    value={quickTitle}
+                    onChange={(e) => setQuickTitle(e.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="chronos-quick-add-btn"
+                    disabled={!quickTitle.trim() || isCreatingQuickTask}
+                    title="Add task to backlog"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                <div className="chronos-quick-pill-row">
+                  {/* Category Pills */}
+                  <div className="chronos-quick-pill-group">
+                    {[
+                      { key: 'General', label: 'GEN' },
+                      { key: 'Engineering', label: 'ENG' },
+                      { key: 'Design', label: 'DES' },
+                      { key: 'Personal', label: 'PERS' }
+                    ].map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        className={`chronos-mini-pill cat-${c.key} ${quickCategory === c.key ? 'active' : ''}`}
+                        onClick={() => setQuickCategory(c.key)}
+                        title={`Category: ${c.key}`}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Priority Pills */}
+                  <div className="chronos-quick-pill-group">
+                    {[
+                      { key: 'low', label: 'L' },
+                      { key: 'medium', label: 'M' },
+                      { key: 'high', label: 'H' }
+                    ].map((p) => (
+                      <button
+                        key={p.key}
+                        type="button"
+                        className={`chronos-mini-pill prio-${p.key} ${quickPriority === p.key ? 'active' : ''}`}
+                        onClick={() => setQuickPriority(p.key)}
+                        title={`Priority: ${p.key.toUpperCase()}`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </form>
             </>
           )}
         </aside>

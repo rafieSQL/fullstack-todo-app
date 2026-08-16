@@ -270,6 +270,144 @@
   scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
 
+/* Sidebar Sticky Quick Task Creator */
+.chronos-sidebar-quick-add {
+  padding: 10px;
+  background-color: #131417;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chronos-quick-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.chronos-quick-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  background-color: #0c0d0e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: #f4f4f5;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chronos-quick-add-input:focus {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.chronos-quick-add-input::placeholder {
+  color: #52525b;
+}
+
+.chronos-quick-add-btn {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background-color: #ffffff;
+  color: #09090b;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.chronos-quick-add-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.chronos-quick-add-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.chronos-quick-pill-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.chronos-quick-pill-group {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.chronos-mini-pill {
+  padding: 2px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.chronos-mini-pill:hover {
+  color: #f4f4f5;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chronos-mini-pill.active {
+  background: #27272a;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.chronos-mini-pill.active.cat-General {
+  border-color: #a1a1aa;
+  color: #f4f4f5;
+}
+
+.chronos-mini-pill.active.cat-Engineering {
+  border-color: #3b82f6;
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.chronos-mini-pill.active.cat-Design {
+  border-color: #a855f7;
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.chronos-mini-pill.active.cat-Personal {
+  border-color: #10b981;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.chronos-mini-pill.active.prio-high {
+  border-color: #ef4444;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.chronos-mini-pill.active.prio-medium {
+  border-color: #f59e0b;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.chronos-mini-pill.active.prio-low {
+  border-color: #10b981;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+}
+
 /* Floating Task Token Item */
 .chronos-sidebar-task {
   padding: 7px 9px;
