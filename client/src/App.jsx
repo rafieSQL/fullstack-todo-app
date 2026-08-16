@@ -3,6 +3,7 @@ import * as api from './api.js'
 import { supabase, isSupabaseConfigured } from './supabaseClient.js'
 import { validateTaskTitle, sanitizeText } from './utils/sanitize.js'
 import Auth from './components/Auth.jsx'
+import FocusSession from './components/FocusSession.jsx'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -58,6 +59,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTaskIds, setSelectedTaskIds] = useState([])
   const [isActivityOpen, setIsActivityOpen] = useState(false)
+
+  // Focus Session overlay state
+  const [isFocusOpen, setIsFocusOpen] = useState(false)
+  const [focusTask, setFocusTask] = useState(null)
 
   // Theme state
   const [theme, setTheme] = useState(() => {
@@ -226,29 +231,57 @@ export default function App() {
     }
   }, [editingTaskId])
 
-  // Global Keyboard shortcuts (/ for search, Esc to dismiss)
+  // Launch Focus Session helper
+  const handleOpenFocusSession = useCallback(
+    (targetTask = null) => {
+      if (targetTask) {
+        setFocusTask(targetTask)
+      } else {
+        // Default to first pending task or null
+        const firstActive = tasks.find((t) => !t.completed) || tasks[0] || null
+        setFocusTask(firstActive)
+      }
+      setIsFocusOpen(true)
+    },
+    [tasks]
+  )
+
+  // Global Keyboard shortcuts (/ for search, F for focus session, Esc to dismiss)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (
-        e.key === '/' &&
-        document.activeElement !== taskInputRef.current &&
-        document.activeElement !== searchInputRef.current &&
-        document.activeElement !== editInputRef.current
-      ) {
+      if (isFocusOpen) return // Let FocusSession handle its own keyboard events
+
+      const isInputActive =
+        document.activeElement === taskInputRef.current ||
+        document.activeElement === searchInputRef.current ||
+        document.activeElement === editInputRef.current ||
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA'
+
+      if (isInputActive) {
+        if (e.key === 'Escape') {
+          if (editingTaskId) {
+            setEditingTaskId(null)
+          } else if (document.activeElement === searchInputRef.current) {
+            setSearchQuery('')
+            searchInputRef.current?.blur()
+          }
+        }
+        return
+      }
+
+      if (e.key === '/') {
         e.preventDefault()
         searchInputRef.current?.focus()
-      } else if (e.key === 'Escape') {
-        if (editingTaskId) {
-          setEditingTaskId(null)
-        } else if (document.activeElement === searchInputRef.current) {
-          setSearchQuery('')
-          searchInputRef.current?.blur()
-        }
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        handleOpenFocusSession()
       }
     }
+
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [editingTaskId])
+  }, [editingTaskId, isFocusOpen, handleOpenFocusSession])
 
   // Sign out handler
   const handleSignOut = async () => {
@@ -324,6 +357,10 @@ export default function App() {
     setTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, completed: nextCompleted } : t))
     )
+
+    if (focusTask && focusTask.id === task.id) {
+      setFocusTask((prev) => (prev ? { ...prev, completed: nextCompleted } : prev))
+    }
 
     try {
       await api.updateTask(task.id, { completed: nextCompleted }, session?.user?.id)
@@ -517,6 +554,24 @@ export default function App() {
     setDropPosition(null)
   }
 
+  // Handle Focus Session Completion Event
+  const handleCompleteFocusSession = async ({ modeLabel, task: completedFocusTask }) => {
+    const taskLabel = completedFocusTask ? ` on "${completedFocusTask.title}"` : ''
+    showToast(`Completed ${modeLabel} Session${taskLabel}!`)
+
+    try {
+      await api.logActivity({
+        type: 'focus-complete',
+        message: `Completed a ${modeLabel} Session${taskLabel}`,
+        userId: session?.user?.id,
+        details: { taskId: completedFocusTask?.id }
+      })
+      loadActivities()
+    } catch (err) {
+      console.warn('Failed to log focus completion:', err)
+    }
+  }
+
   // Metrics Calculations
   const metrics = useMemo(() => {
     const total = tasks.length
@@ -638,6 +693,16 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* Zen Pomodoro Focus Session Overlay */}
+      {isFocusOpen && (
+        <FocusSession
+          task={focusTask}
+          onClose={() => setIsFocusOpen(false)}
+          onToggleTask={handleToggleTask}
+          onCompleteSession={handleCompleteFocusSession}
+        />
+      )}
+
       {/* Toast Notification Container */}
       <div className="toast-container" aria-live="polite">
         {toasts.map((toast) => (
@@ -673,6 +738,20 @@ export default function App() {
         </div>
 
         <div className="header-actions">
+          {/* Zen Focus Session Trigger */}
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => handleOpenFocusSession()}
+            title="Launch Zen Pomodoro Focus Session (F)"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            Focus <kbd className="key-badge" style={{ fontSize: '10px', padding: '0 3px' }}>F</kbd>
+          </button>
+
           {/* User Session Info */}
           {session ? (
             <div className="user-session-group" title={`Signed in as ${session.user?.email}`}>
@@ -1142,6 +1221,20 @@ export default function App() {
                   </div>
 
                   <div className="task-item-right">
+                    {/* Launch Focus Session on this Task Button */}
+                    <button
+                      type="button"
+                      className="btn-edit-title"
+                      onClick={() => handleOpenFocusSession(task)}
+                      title={`Focus on "${task.title}"`}
+                      aria-label={`Focus on "${task.title}"`}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                    </button>
+
                     {/* Category Tag Badge */}
                     <span
                       className={`category-badge ${categoryClass}`}
@@ -1245,6 +1338,7 @@ export default function App() {
 
       {/* Shortcuts Legend */}
       <div className="shortcuts-legend">
+        <span><kbd className="key-badge">F</kbd> Focus session</span>
         <span><kbd className="key-badge">↵</kbd> Save task / Edit</span>
         <span><kbd className="key-badge">2× Click</kbd> Inline edit</span>
         <span><kbd className="key-badge">⋮⋮ Drag</kbd> Reorder</span>
