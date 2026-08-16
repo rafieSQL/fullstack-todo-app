@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import * as api from './api.js'
 import { supabase, isSupabaseConfigured } from './supabaseClient.js'
+import { validateTaskTitle, sanitizeText } from './utils/sanitize.js'
 import Auth from './components/Auth.jsx'
 import './App.css'
 
@@ -264,19 +265,27 @@ export default function App() {
     }
   }
 
-  // Add Task
+  // Add Task with input sanitization and length validation
   const handleAddTask = async (e) => {
     e.preventDefault()
-    const trimmedTitle = newTaskTitle.trim()
-    if (!trimmedTitle || isSubmitting) return
+    const validation = validateTaskTitle(newTaskTitle)
+
+    if (!validation.isValid) {
+      setErrorMessage(validation.error)
+      showToast(validation.error, 'error')
+      return
+    }
+
+    if (isSubmitting) return
 
     setIsSubmitting(true)
     setErrorMessage(null)
 
+    const sanitizedTitle = validation.sanitized
     const tempId = `temp-${Date.now()}`
     const optimisticTask = {
       id: tempId,
-      title: trimmedTitle,
+      title: sanitizedTitle,
       priority: newPriority,
       category: newCategory,
       order: 0,
@@ -289,7 +298,7 @@ export default function App() {
 
     try {
       const createdTask = await api.createTask({
-        title: trimmedTitle,
+        title: sanitizedTitle,
         priority: newPriority,
         category: newCategory,
         userId: session?.user?.id
@@ -302,7 +311,7 @@ export default function App() {
       setTasks((prev) => prev.filter((t) => t.id !== tempId))
       setErrorMessage(`Failed to add task: ${err.message}`)
       showToast(`Error adding task: ${err.message}`, 'error')
-      setNewTaskTitle(trimmedTitle)
+      setNewTaskTitle(sanitizedTitle)
     } finally {
       setIsSubmitting(false)
     }
@@ -335,25 +344,33 @@ export default function App() {
     setEditingTitle(task.title)
   }
 
-  // Save Inline Edit
+  // Save Inline Edit with sanitization and validation
   const handleSaveEdit = async (task) => {
     if (!editingTaskId) return
-    const trimmed = editingTitle.trim()
+    const validation = validateTaskTitle(editingTitle)
 
-    if (!trimmed || trimmed === task.title) {
+    if (!validation.isValid) {
+      showToast(validation.error, 'error')
+      setEditingTaskId(null)
+      return
+    }
+
+    const sanitizedTitle = validation.sanitized
+
+    if (sanitizedTitle === task.title) {
       setEditingTaskId(null)
       return
     }
 
     const previousTitle = task.title
     setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, title: trimmed } : t))
+      prev.map((t) => (t.id === task.id ? { ...t, title: sanitizedTitle } : t))
     )
     setEditingTaskId(null)
 
     try {
-      await api.updateTask(task.id, { title: trimmed }, session?.user?.id)
-      showToast(`Renamed task to "${trimmed}"`)
+      await api.updateTask(task.id, { title: sanitizedTitle }, session?.user?.id)
+      showToast(`Renamed task to "${sanitizedTitle}"`)
       loadActivities()
     } catch (err) {
       console.error('Failed to rename task:', err)
@@ -518,8 +535,10 @@ export default function App() {
     return counts
   }, [tasks])
 
-  // Filtered & Sorted Tasks
+  // Filtered & Sorted Tasks with search sanitization
   const filteredTasks = useMemo(() => {
+    const sanitizedSearch = sanitizeText(searchQuery, 100).toLowerCase()
+
     let result = tasks.filter((task) => {
       if (activeTab === 'active' && task.completed) return false
       if (activeTab === 'completed' && !task.completed) return false
@@ -533,11 +552,10 @@ export default function App() {
 
       if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false
 
-      if (searchQuery.trim() !== '') {
-        const query = searchQuery.trim().toLowerCase()
+      if (sanitizedSearch !== '') {
         return (
-          task.title.toLowerCase().includes(query) ||
-          (task.category || '').toLowerCase().includes(query)
+          task.title.toLowerCase().includes(sanitizedSearch) ||
+          (task.category || '').toLowerCase().includes(sanitizedSearch)
         )
       }
 
@@ -597,7 +615,6 @@ export default function App() {
   if (!session && !isDemoMode) {
     return (
       <div className="app-container">
-        {/* Toast Notification Container */}
         <div className="toast-container" aria-live="polite">
           {toasts.map((toast) => (
             <div key={toast.id} className={`toast ${toast.type === 'error' ? 'toast-error' : ''}`}>
@@ -774,6 +791,7 @@ export default function App() {
               placeholder="Add a new task... (press Enter to save)"
               value={newTaskTitle}
               onChange={(e) => setNewTaskTitle(e.target.value)}
+              maxLength={250}
               disabled={isSubmitting}
               autoFocus
               aria-label="New task title"
@@ -896,6 +914,7 @@ export default function App() {
               placeholder="Search tasks... (/)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              maxLength={100}
               aria-label="Search tasks"
             />
             {searchQuery && (
@@ -1088,6 +1107,7 @@ export default function App() {
                           className="inline-edit-input"
                           value={editingTitle}
                           onChange={(e) => setEditingTitle(e.target.value)}
+                          maxLength={250}
                           onBlur={() => handleSaveEdit(task)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') handleSaveEdit(task)

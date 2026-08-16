@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient.js'
+import { sanitizeText, validateTaskTitle } from './utils/sanitize.js'
 
 /**
  * Custom API Error for clear error reporting
@@ -67,7 +68,7 @@ export async function getTasks(filters = {}) {
       list = list.filter((t) => t.priority === filters.priority)
     }
     if (filters.search && filters.search.trim()) {
-      const q = filters.search.toLowerCase()
+      const q = sanitizeText(filters.search, 100).toLowerCase()
       list = list.filter((t) => t.title.toLowerCase().includes(q))
     }
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -92,7 +93,8 @@ export async function getTasks(filters = {}) {
     }
 
     if (filters.search && filters.search.trim() !== '') {
-      query = query.ilike('title', `%${filters.search.trim()}%`)
+      const sanitizedSearch = sanitizeText(filters.search, 100)
+      query = query.ilike('title', `%${sanitizedSearch}%`)
     }
 
     if (filters.sort === 'newest') {
@@ -117,15 +119,23 @@ export async function getTasks(filters = {}) {
 }
 
 /**
- * Create a new task
+ * Create a new task with strict input sanitization
  */
 export async function createTask({ title, priority = 'medium', category = 'General', userId = null }) {
+  const validation = validateTaskTitle(title)
+  if (!validation.isValid) {
+    throw new ApiError(validation.error, 400)
+  }
+
+  const cleanTitle = validation.sanitized
+  const cleanCategory = sanitizeText(category, 50) || 'General'
+
   if (!isSupabaseConfigured) {
     const newTask = {
       id: `mock-${Date.now()}`,
-      title,
+      title: cleanTitle,
       priority,
-      category,
+      category: cleanCategory,
       order: 0,
       completed: false,
       created_at: new Date().toISOString()
@@ -133,16 +143,16 @@ export async function createTask({ title, priority = 'medium', category = 'Gener
     mockTasks = [newTask, ...mockTasks.map((t) => ({ ...t, order: (t.order || 0) + 1 }))]
     logActivity({
       type: 'create',
-      message: `Created task "${title}" [${category} • ${priority.toUpperCase()}]`
+      message: `Created task "${cleanTitle}" [${cleanCategory} • ${priority.toUpperCase()}]`
     })
     return newTask
   }
 
   try {
     const payload = {
-      title: title.trim(),
+      title: cleanTitle,
       priority,
-      category,
+      category: cleanCategory,
       completed: false,
       order: 0
     }
@@ -172,17 +182,26 @@ export async function createTask({ title, priority = 'medium', category = 'Gener
  * Update task
  */
 export async function updateTask(id, updates) {
+  const sanitizedUpdates = { ...updates }
+  if (typeof sanitizedUpdates.title === 'string') {
+    const validation = validateTaskTitle(sanitizedUpdates.title)
+    if (!validation.isValid) {
+      throw new ApiError(validation.error, 400)
+    }
+    sanitizedUpdates.title = validation.sanitized
+  }
+
   if (!isSupabaseConfigured) {
     const idx = mockTasks.findIndex((t) => t.id === id)
     if (idx === -1) throw new ApiError('Task not found', 404)
-    mockTasks[idx] = { ...mockTasks[idx], ...updates, updated_at: new Date().toISOString() }
+    mockTasks[idx] = { ...mockTasks[idx], ...sanitizedUpdates, updated_at: new Date().toISOString() }
     return mockTasks[idx]
   }
 
   try {
     const { data, error } = await supabase
       .from('tasks')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update({ ...sanitizedUpdates, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single()
@@ -213,7 +232,6 @@ export async function reorderTasks(orderedIds, userId = null) {
   }
 
   try {
-    // Perform parallel updates for order indices
     const updatePromises = orderedIds.map((id, index) =>
       supabase.from('tasks').update({ order: index }).eq('id', id)
     )
@@ -293,7 +311,7 @@ export async function deleteTask(id, taskTitle = '', userId = null) {
     if (taskTitle) {
       await logActivity({
         type: 'delete',
-        message: `Deleted task "${taskTitle}"`,
+        message: `Deleted task "${sanitizeText(taskTitle, 200)}"`,
         userId
       })
     }
@@ -354,8 +372,7 @@ export async function getActivityLog(limit = 15) {
       .limit(limit)
 
     if (error) {
-      // Table might not be created yet; return empty array rather than breaking UI
-      console.warn('Activity log table query warning:', error.message)
+      console.warn('Activity log query notice:', error.message)
       return []
     }
     return data || []
@@ -369,11 +386,14 @@ export async function getActivityLog(limit = 15) {
  * Record a system activity event
  */
 export async function logActivity({ type, message, details = {}, userId = null }) {
+  const cleanMessage = sanitizeText(message, 500)
+  if (!cleanMessage) return null
+
   if (!isSupabaseConfigured) {
     const act = {
       id: `act-${Date.now()}`,
       type,
-      message,
+      message: cleanMessage,
       created_at: new Date().toISOString()
     }
     mockActivities.unshift(act)
@@ -382,13 +402,12 @@ export async function logActivity({ type, message, details = {}, userId = null }
   }
 
   try {
-    const payload = { type, message, details }
+    const payload = { type, message: cleanMessage, details }
     if (userId) payload.user_id = userId
 
     const { data } = await supabase.from('activity_logs').insert([payload]).select().single()
     return data
   } catch {
-    // Non-critical logging failure
     return null
   }
 }

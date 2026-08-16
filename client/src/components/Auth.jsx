@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase, isSupabaseConfigured } from '../supabaseClient.js'
+import { sanitizeEmail } from '../utils/sanitize.js'
 
 export default function Auth({ onDemoAccess }) {
   const [authMode, setAuthMode] = useState('sign_in') // 'sign_in' | 'sign_up' | 'magic_link'
@@ -14,14 +15,22 @@ export default function Auth({ onDemoAccess }) {
     setErrorMessage(null)
     setSuccessMessage(null)
 
-    if (!email.trim()) {
+    const cleanedEmail = sanitizeEmail(email)
+
+    if (!cleanedEmail || !cleanedEmail.includes('@') || !cleanedEmail.includes('.')) {
       setErrorMessage('Please provide a valid email address.')
       return
     }
 
-    if (authMode !== 'magic_link' && (!password || password.length < 6)) {
-      setErrorMessage('Password must be at least 6 characters long.')
-      return
+    if (authMode !== 'magic_link') {
+      if (!password || password.length < 6) {
+        setErrorMessage('Password must contain at least 6 characters.')
+        return
+      }
+      if (password.length > 72) {
+        setErrorMessage('Password cannot exceed 72 characters.')
+        return
+      }
     }
 
     if (!isSupabaseConfigured) {
@@ -36,29 +45,36 @@ export default function Auth({ onDemoAccess }) {
     try {
       if (authMode === 'sign_in') {
         const { error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: cleanedEmail,
           password
         })
-        if (error) throw error
+        if (error) {
+          // Unified non-leaking error message to prevent user enumeration
+          throw new Error('Invalid email or password credentials.')
+        }
       } else if (authMode === 'sign_up') {
         const { error, data } = await supabase.auth.signUp({
-          email: email.trim(),
+          email: cleanedEmail,
           password
         })
-        if (error) throw error
+        if (error) {
+          throw new Error('Unable to complete registration. Please verify details.')
+        }
         if (data?.user && !data?.session) {
-          setSuccessMessage('Registration successful! Please check your email to confirm your account.')
+          setSuccessMessage('Verification link sent. Check your inbox to confirm your account.')
         }
       } else if (authMode === 'magic_link') {
         const { error } = await supabase.auth.signInWithOtp({
-          email: email.trim()
+          email: cleanedEmail
         })
-        if (error) throw error
-        setSuccessMessage('Magic login link sent to your email. Click the link to authenticate.')
+        if (error) {
+          throw new Error('Unable to send magic link. Please check your email address.')
+        }
+        setSuccessMessage('Magic login link dispatched. Check your email to access the system.')
       }
     } catch (err) {
-      console.error('Authentication error:', err)
-      setErrorMessage(err.message || 'Authentication failed. Please verify your credentials.')
+      console.error('Authentication attempt failed:', err)
+      setErrorMessage(err.message || 'Authentication failed. Please verify credentials.')
     } finally {
       setLoading(false)
     }
@@ -103,7 +119,7 @@ export default function Auth({ onDemoAccess }) {
         )}
 
         {/* Form */}
-        <form onSubmit={handleAuth} className="auth-form">
+        <form onSubmit={handleAuth} className="auth-form" noValidate>
           <div className="auth-field">
             <label htmlFor="auth-email" className="auth-label">
               Email Address
@@ -115,6 +131,7 @@ export default function Auth({ onDemoAccess }) {
               placeholder="operator@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              maxLength={100}
               required
               autoFocus
             />
@@ -132,6 +149,7 @@ export default function Auth({ onDemoAccess }) {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                maxLength={72}
                 required
               />
             </div>
@@ -156,6 +174,7 @@ export default function Auth({ onDemoAccess }) {
             onClick={() => {
               setAuthMode('sign_in')
               setErrorMessage(null)
+              setSuccessMessage(null)
             }}
           >
             Password Sign In
@@ -167,6 +186,7 @@ export default function Auth({ onDemoAccess }) {
             onClick={() => {
               setAuthMode('sign_up')
               setErrorMessage(null)
+              setSuccessMessage(null)
             }}
           >
             Sign Up
@@ -178,6 +198,7 @@ export default function Auth({ onDemoAccess }) {
             onClick={() => {
               setAuthMode('magic_link')
               setErrorMessage(null)
+              setSuccessMessage(null)
             }}
           >
             Magic Link
