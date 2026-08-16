@@ -899,6 +899,23 @@ export default function App() {
     async (result = {}, transcript = '') => {
       const action = result.action || 'UNKNOWN'
 
+      // Defensive TTS Playback Helper
+      const safeSpeakBack = (replyText) => {
+        if (!replyText) return
+        if (typeof speakBack === 'function') {
+          speakBack(replyText)
+        } else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          try {
+            window.speechSynthesis.cancel()
+            const utterance = new SpeechSynthesisUtterance(replyText)
+            utterance.lang = 'id-ID'
+            window.speechSynthesis.speak(utterance)
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       if (action === 'CREATE_TASKS' || (Array.isArray(result.tasks) && result.tasks.length > 0)) {
         const taskList = result.tasks || []
         setInterimVoiceText(`⚡ Memproses ${taskList.length} tugas terjadwal...`)
@@ -915,6 +932,7 @@ export default function App() {
 
         const replyMsg =
           result.confirmation_reply ||
+          result.reply ||
           result.reply_summary ||
           (taskList.length === 1
             ? `Siap bro, tugas "${taskList[0].title}" udah masuk kalender.`
@@ -923,7 +941,7 @@ export default function App() {
         sfx.playSuccess()
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
-        speakBack(replyMsg)
+        safeSpeakBack(replyMsg)
       } else if (
         action === 'COMPLETE_TASK' ||
         action === 'complete' ||
@@ -946,7 +964,7 @@ export default function App() {
           sfx.playSuccess()
           setInterimVoiceText(`✓ ${replyMsg}`)
           showToast(`🤝 Partner: ${replyMsg}`)
-          speakBack(replyMsg)
+          safeSpeakBack(replyMsg)
         } else {
           const fallbackReply =
             result.confirmation_reply ||
@@ -955,7 +973,7 @@ export default function App() {
             'Tugas yang dimaksud tidak ditemukan di daftar aktif.'
           setInterimVoiceText(`⚠️ ${fallbackReply}`)
           showToast(`🤝 Partner: ${fallbackReply}`, 'info')
-          speakBack(fallbackReply)
+          safeSpeakBack(fallbackReply)
         }
       } else if (action === 'DELETE_TASK' || action === 'delete') {
         const targetId = result.target_task_id || result.targetId
@@ -975,7 +993,7 @@ export default function App() {
           sfx.playSuccess()
           setInterimVoiceText(`✓ ${replyMsg}`)
           showToast(`🤝 Partner: ${replyMsg}`)
-          speakBack(replyMsg)
+          safeSpeakBack(replyMsg)
         } else {
           const fallbackReply =
             result.confirmation_reply ||
@@ -984,7 +1002,7 @@ export default function App() {
             'Tugas yang ingin dihapus tidak ditemukan.'
           setInterimVoiceText(`⚠️ ${fallbackReply}`)
           showToast(`🤝 Partner: ${fallbackReply}`, 'info')
-          speakBack(fallbackReply)
+          safeSpeakBack(fallbackReply)
         }
       } else if (action === 'CREATE_TASK') {
         setInterimVoiceText(`⚡ Executing: "${result.title}"...`)
@@ -997,12 +1015,13 @@ export default function App() {
         })
         const replyMsg =
           result.confirmation_reply ||
+          result.reply ||
           result.reply_summary ||
           `Siap bro, tugas "${result.title}" berhasil dibuat.`
         sfx.playSuccess()
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
-        speakBack(replyMsg)
+        safeSpeakBack(replyMsg)
       } else if (action === 'SCHEDULE_EVENT') {
         setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
         const startTime = result.scheduled_at || result.start_time || new Date().toISOString()
@@ -1022,13 +1041,14 @@ export default function App() {
         })
         const replyMsg =
           result.confirmation_reply ||
+          result.reply ||
           result.reply_summary ||
           `Siap bro, jadwal "${result.title}" berhasil diatur.`
         sfx.playSuccess()
         setMainTab('calendar')
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
-        speakBack(replyMsg)
+        safeSpeakBack(replyMsg)
       } else if (action === 'NAVIGATE') {
         sfx.playSuccess()
         const targetView = result.target_view || 'tasks'
@@ -1037,26 +1057,35 @@ export default function App() {
         } else {
           setMainTab(targetView)
         }
-        const replyMsg = result.confirmation_reply || result.reply_summary || 'Siap bro, beralih tampilan.'
+        const replyMsg =
+          result.confirmation_reply ||
+          result.reply ||
+          result.reply_summary ||
+          'Siap bro, beralih tampilan.'
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
-        speakBack(replyMsg)
+        safeSpeakBack(replyMsg)
       } else if (action === 'CLEAR_COMPLETED') {
         setInterimVoiceText('⚡ Purging completed tasks...')
         await handleClearCompleted()
-        const replyMsg = result.confirmation_reply || result.reply_summary || 'Siap bro, tugas selesai telah dibersihkan.'
+        const replyMsg =
+          result.confirmation_reply ||
+          result.reply ||
+          result.reply_summary ||
+          'Siap bro, tugas selesai telah dibersihkan.'
         sfx.playSuccess()
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
-        speakBack(replyMsg)
+        safeSpeakBack(replyMsg)
       } else {
         const fallbackMsg =
           result.confirmation_reply ||
+          result.reply ||
           result.reply_summary ||
           (transcript ? `Perintah "${transcript}" tidak dikenali.` : 'Suara tidak terdeteksi.')
         setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
         showToast(`🤝 Partner: ${fallbackMsg}`, 'info')
-        speakBack(fallbackMsg)
+        safeSpeakBack(fallbackMsg)
       }
     },
     [session, tasks, handleCreateTask, handleToggleTask, handleDeleteTask, handleClearCompleted, handleOpenFocusSession, showToast]
