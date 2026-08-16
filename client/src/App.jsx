@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import * as api from './api.js'
 import { supabase, isSupabaseConfigured } from './supabaseClient.js'
 import { validateTaskTitle, sanitizeText } from './utils/sanitize.js'
+import { useFocus } from './context/useFocus.js'
 import Auth from './components/Auth.jsx'
 import FocusSession from './components/FocusSession.jsx'
+import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -39,6 +41,9 @@ function formatTimeAgo(isoString) {
 }
 
 export default function App() {
+  // Focus Session global state from FocusContext
+  const { viewMode, startSession } = useFocus()
+
   // Auth state initialized based on configuration
   const [session, setSession] = useState(null)
   const [authInitialized, setAuthInitialized] = useState(() => !isSupabaseConfigured)
@@ -59,10 +64,6 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTaskIds, setSelectedTaskIds] = useState([])
   const [isActivityOpen, setIsActivityOpen] = useState(false)
-
-  // Focus Session overlay state
-  const [isFocusOpen, setIsFocusOpen] = useState(false)
-  const [focusTask, setFocusTask] = useState(null)
 
   // Theme state
   const [theme, setTheme] = useState(() => {
@@ -231,25 +232,19 @@ export default function App() {
     }
   }, [editingTaskId])
 
-  // Launch Focus Session helper
+  // Launch Focus Session handler
   const handleOpenFocusSession = useCallback(
     (targetTask = null) => {
-      if (targetTask) {
-        setFocusTask(targetTask)
-      } else {
-        // Default to first pending task or null
-        const firstActive = tasks.find((t) => !t.completed) || tasks[0] || null
-        setFocusTask(firstActive)
-      }
-      setIsFocusOpen(true)
+      const selected = targetTask || tasks.find((t) => !t.completed) || tasks[0] || null
+      startSession(selected)
     },
-    [tasks]
+    [tasks, startSession]
   )
 
   // Global Keyboard shortcuts (/ for search, F for focus session, Esc to dismiss)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (isFocusOpen) return // Let FocusSession handle its own keyboard events
+      if (viewMode === 'fullscreen') return // Let FocusSession handle its own keyboard events
 
       const isInputActive =
         document.activeElement === taskInputRef.current ||
@@ -281,7 +276,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [editingTaskId, isFocusOpen, handleOpenFocusSession])
+  }, [editingTaskId, viewMode, handleOpenFocusSession])
 
   // Sign out handler
   const handleSignOut = async () => {
@@ -357,10 +352,6 @@ export default function App() {
     setTasks((prev) =>
       prev.map((t) => (t.id === task.id ? { ...t, completed: nextCompleted } : t))
     )
-
-    if (focusTask && focusTask.id === task.id) {
-      setFocusTask((prev) => (prev ? { ...prev, completed: nextCompleted } : prev))
-    }
 
     try {
       await api.updateTask(task.id, { completed: nextCompleted }, session?.user?.id)
@@ -554,24 +545,6 @@ export default function App() {
     setDropPosition(null)
   }
 
-  // Handle Focus Session Completion Event
-  const handleCompleteFocusSession = async ({ modeLabel, task: completedFocusTask }) => {
-    const taskLabel = completedFocusTask ? ` on "${completedFocusTask.title}"` : ''
-    showToast(`Completed ${modeLabel} Session${taskLabel}!`)
-
-    try {
-      await api.logActivity({
-        type: 'focus-complete',
-        message: `Completed a ${modeLabel} Session${taskLabel}`,
-        userId: session?.user?.id,
-        details: { taskId: completedFocusTask?.id }
-      })
-      loadActivities()
-    } catch (err) {
-      console.warn('Failed to log focus completion:', err)
-    }
-  }
-
   // Metrics Calculations
   const metrics = useMemo(() => {
     const total = tasks.length
@@ -693,14 +666,14 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Zen Pomodoro Focus Session Overlay */}
-      {isFocusOpen && (
-        <FocusSession
-          task={focusTask}
-          onClose={() => setIsFocusOpen(false)}
-          onToggleTask={handleToggleTask}
-          onCompleteSession={handleCompleteFocusSession}
-        />
+      {/* Fullscreen Zen Pomodoro Overlay */}
+      {viewMode === 'fullscreen' && (
+        <FocusSession onToggleTask={handleToggleTask} />
+      )}
+
+      {/* Floating Picture-in-Picture (PiP) Mini Player */}
+      {viewMode === 'minimized' && (
+        <FocusMiniPlayer onToggleTask={handleToggleTask} />
       )}
 
       {/* Toast Notification Container */}

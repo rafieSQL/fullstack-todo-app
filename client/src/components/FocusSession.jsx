@@ -1,304 +1,61 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
+import { useFocus } from '../context/useFocus.js'
+import { formatFocusTime, MODES, AMBIENT_PRESETS } from '../context/focusConstants.js'
 import './FocusSession.css'
 
-const MODES = {
-  focus: { label: 'Focus', seconds: 25 * 60 },
-  short: { label: 'Short Break', seconds: 5 * 60 },
-  long: { label: 'Long Break', seconds: 15 * 60 }
-}
+export default function FocusSession({ onToggleTask }) {
+  const {
+    mode,
+    timeLeft,
+    isRunning,
+    sessionGoal,
+    activeTask,
+    ambientPreset,
+    ambientVolume,
+    isTickingEnabled,
+    tickingVolume,
+    switchMode,
+    resetTimer,
+    togglePlay,
+    changeAmbientPreset,
+    setAmbientVolume,
+    setIsTickingEnabled,
+    setTickingVolume,
+    setSessionGoal,
+    minimizeSession,
+    endSession
+  } = useFocus()
 
-const AMBIENT_PRESETS = [
-  { id: 'none', label: 'Off' },
-  { id: 'brown', label: 'Brown Noise' },
-  { id: 'pink', label: 'Rain (Pink)' },
-  { id: 'gamma40', label: '40Hz Gamma' }
-]
+  const goalInputRef = useRef(null)
 
-export default function FocusSession({ task, onClose, onToggleTask, onCompleteSession }) {
-  const [mode, setMode] = useState('focus')
-  const [timeLeft, setTimeLeft] = useState(MODES.focus.seconds)
-  const [isRunning, setIsRunning] = useState(false)
-  const [ambientSound, setAmbientSound] = useState('none')
-  const [volume, setVolume] = useState(0.4)
-
-  // Audio Context and Node references for procedural audio
-  const audioCtxRef = useRef(null)
-  const masterGainRef = useRef(null)
-  const soundNodesRef = useRef([])
-
-  // Format seconds into MM:SS
-  const formatTime = (secs) => {
-    const m = Math.floor(secs / 60)
-    const s = secs % 60
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
-
-  // Initialize Web Audio Context
-  const getAudioContext = useCallback(() => {
-    if (!audioCtxRef.current) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext
-      if (AudioCtx) {
-        audioCtxRef.current = new AudioCtx()
-        const gain = audioCtxRef.current.createGain()
-        gain.gain.setValueAtTime(volume, audioCtxRef.current.currentTime)
-        gain.connect(audioCtxRef.current.destination)
-        masterGainRef.current = gain
-      }
-    }
-    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume()
-    }
-    return audioCtxRef.current
-  }, [volume])
-
-  // Play crisp dual-tone completion chime
-  const playCompletionChime = useCallback(() => {
-    try {
-      const ctx = getAudioContext()
-      if (!ctx) return
-
-      const now = ctx.currentTime
-
-      // Tone 1: 880Hz (A5)
-      const osc1 = ctx.createOscillator()
-      const gain1 = ctx.createGain()
-      osc1.type = 'sine'
-      osc1.frequency.setValueAtTime(880, now)
-      gain1.gain.setValueAtTime(0.3, now)
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3)
-      osc1.connect(gain1)
-      gain1.connect(ctx.destination)
-      osc1.start(now)
-      osc1.stop(now + 0.3)
-
-      // Tone 2: 1320Hz (E6)
-      const osc2 = ctx.createOscillator()
-      const gain2 = ctx.createGain()
-      osc2.type = 'sine'
-      osc2.frequency.setValueAtTime(1320, now + 0.15)
-      gain2.gain.setValueAtTime(0.35, now + 0.15)
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6)
-      osc2.connect(gain2)
-      gain2.connect(ctx.destination)
-      osc2.start(now + 0.15)
-      osc2.stop(now + 0.6)
-    } catch (err) {
-      console.warn('Audio chime error:', err)
-    }
-  }, [getAudioContext])
-
-  // Stop active procedural sound nodes
-  const stopAmbientSound = useCallback(() => {
-    soundNodesRef.current.forEach((node) => {
-      try {
-        if (node.stop) node.stop()
-        if (node.disconnect) node.disconnect()
-      } catch {
-        // Node already stopped
-      }
-    })
-    soundNodesRef.current = []
-  }, [])
-
-  // Start procedural sound based on preset
-  const startAmbientSound = useCallback(
-    (preset) => {
-      stopAmbientSound()
-      if (preset === 'none') return
-
-      try {
-        const ctx = getAudioContext()
-        if (!ctx || !masterGainRef.current) return
-
-        const bufferSize = ctx.sampleRate * 4
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
-        const data = buffer.getChannelData(0)
-
-        if (preset === 'brown') {
-          // Brownian Noise: Integrated white noise for deep warm focus rumble
-          let lastOut = 0.0
-          for (let i = 0; i < bufferSize; i++) {
-            const white = Math.random() * 2 - 1
-            data[i] = (lastOut + 0.02 * white) / 1.02
-            lastOut = data[i]
-            data[i] *= 3.5 // Boost gain
-          }
-
-          const noiseSource = ctx.createBufferSource()
-          noiseSource.buffer = buffer
-          noiseSource.loop = true
-
-          const filter = ctx.createBiquadFilter()
-          filter.type = 'lowpass'
-          filter.frequency.setValueAtTime(320, ctx.currentTime)
-
-          noiseSource.connect(filter)
-          filter.connect(masterGainRef.current)
-          noiseSource.start()
-
-          soundNodesRef.current = [noiseSource, filter]
-        } else if (preset === 'pink') {
-          // Pink Noise / Rain simulation (Paul Kellet's filter)
-          let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0
-          for (let i = 0; i < bufferSize; i++) {
-            const white = Math.random() * 2 - 1
-            b0 = 0.99886 * b0 + white * 0.0555179
-            b1 = 0.99332 * b1 + white * 0.0750759
-            b2 = 0.96900 * b2 + white * 0.1538520
-            b3 = 0.86650 * b3 + white * 0.3104856
-            b4 = 0.55000 * b4 + white * 0.5329522
-            b5 = -0.7616 * b5 - white * 0.0168980
-            data[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362
-            data[i] *= 0.11
-            b6 = white * 0.115926
-          }
-
-          const noiseSource = ctx.createBufferSource()
-          noiseSource.buffer = buffer
-          noiseSource.loop = true
-
-          const filter = ctx.createBiquadFilter()
-          filter.type = 'lowpass'
-          filter.frequency.setValueAtTime(1200, ctx.currentTime)
-
-          noiseSource.connect(filter)
-          filter.connect(masterGainRef.current)
-          noiseSource.start()
-
-          soundNodesRef.current = [noiseSource, filter]
-        } else if (preset === 'gamma40') {
-          // 40Hz Isochronic Gamma Pulse (Carrier 180Hz modulated at 40Hz)
-          const carrier = ctx.createOscillator()
-          carrier.type = 'sine'
-          carrier.frequency.setValueAtTime(180, ctx.currentTime)
-
-          const pulseGain = ctx.createGain()
-          pulseGain.gain.setValueAtTime(0.5, ctx.currentTime)
-
-          const lfo = ctx.createOscillator()
-          lfo.type = 'square'
-          lfo.frequency.setValueAtTime(40, ctx.currentTime)
-
-          const lfoGain = ctx.createGain()
-          lfoGain.gain.setValueAtTime(0.5, ctx.currentTime)
-
-          lfo.connect(lfoGain)
-          lfoGain.connect(pulseGain.gain)
-
-          carrier.connect(pulseGain)
-          pulseGain.connect(masterGainRef.current)
-
-          carrier.start()
-          lfo.start()
-
-          soundNodesRef.current = [carrier, lfo, pulseGain, lfoGain]
-        }
-      } catch (err) {
-        console.warn('Failed to start ambient sound:', err)
-      }
-    },
-    [getAudioContext, stopAmbientSound]
-  )
-
-  // Update volume in real-time
-  useEffect(() => {
-    if (masterGainRef.current && audioCtxRef.current) {
-      masterGainRef.current.gain.setValueAtTime(volume, audioCtxRef.current.currentTime)
-    }
-  }, [volume])
-
-  // Handle Preset Change
-  const handleSelectPreset = (presetId) => {
-    setAmbientSound(presetId)
-    startAmbientSound(presetId)
-  }
-
-  // Switch timer mode
-  const handleSwitchMode = (newMode) => {
-    setMode(newMode)
-    setTimeLeft(MODES[newMode].seconds)
-    setIsRunning(false)
-  }
-
-  // Reset timer
-  const handleReset = () => {
-    setTimeLeft(MODES[mode].seconds)
-    setIsRunning(false)
-  }
-
-  // Toggle Play / Pause
-  const handleTogglePlay = () => {
-    getAudioContext() // Resume AudioContext if needed
-    setIsRunning((prev) => !prev)
-  }
-
-  // Timer Tick Engine
-  useEffect(() => {
-    let timer = null
-    if (isRunning) {
-      timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            setIsRunning(false)
-            playCompletionChime()
-            if (onCompleteSession) {
-              onCompleteSession({
-                mode,
-                modeLabel: MODES[mode].label,
-                task
-              })
-            }
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-    }
-    return () => {
-      if (timer) clearInterval(timer)
-    }
-  }, [isRunning, mode, task, onCompleteSession, playCompletionChime])
-
-  // Document Title Synchronization
-  useEffect(() => {
-    const originalTitle = document.title
-    const timeStr = formatTime(timeLeft)
-    document.title = `(${timeStr}) ${MODES[mode].label} • Task Registry`
-    return () => {
-      document.title = originalTitle
-    }
-  }, [timeLeft, mode])
-
-  // Keyboard Shortcuts (Space, R, Esc)
+  // Keyboard Shortcuts (Space, R, Esc to minimize)
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Don't trigger shortcuts if user is actively typing in the goal input
+      if (document.activeElement === goalInputRef.current) {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+          goalInputRef.current?.blur()
+        }
+        return
+      }
+
       if (e.code === 'Space') {
         e.preventDefault()
-        handleTogglePlay()
+        togglePlay()
       } else if (e.key === 'r' || e.key === 'R') {
         if (!e.metaKey && !e.ctrlKey) {
           e.preventDefault()
-          handleReset()
+          resetTimer()
         }
       } else if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        minimizeSession()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  })
-
-  // Cleanup Web Audio on component unmount
-  useEffect(() => {
-    return () => {
-      stopAmbientSound()
-      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-        audioCtxRef.current.close().catch(() => {})
-      }
-    }
-  }, [stopAmbientSound])
+  }, [togglePlay, resetTimer, minimizeSession])
 
   return (
     <div className="focus-overlay" role="dialog" aria-label="Zen Pomodoro Focus Session" aria-modal="true">
@@ -310,7 +67,7 @@ export default function FocusSession({ task, onClose, onToggleTask, onCompleteSe
               key={key}
               type="button"
               className={`focus-mode-btn ${mode === key ? 'active' : ''}`}
-              onClick={() => handleSwitchMode(key)}
+              onClick={() => switchMode(key)}
               role="tab"
               aria-selected={mode === key}
             >
@@ -320,28 +77,64 @@ export default function FocusSession({ task, onClose, onToggleTask, onCompleteSe
         </div>
 
         <div className="focus-header-right">
+          {/* Minimize to PiP Mini-Player */}
           <button
             type="button"
-            className="btn-focus-close"
-            onClick={onClose}
-            title="Exit Focus Session (Esc)"
+            className="btn-focus-action"
+            onClick={minimizeSession}
+            title="Minimize to Floating Mini-Player (Esc)"
           >
-            <span>Exit Session</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+            <span>Minimize</span>
             <kbd className="key-badge">Esc</kbd>
+          </button>
+
+          {/* End Session */}
+          <button
+            type="button"
+            className="btn-focus-action"
+            onClick={endSession}
+            title="End Session completely"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            <span>End</span>
           </button>
         </div>
       </header>
 
       {/* Center Stage */}
       <main className="focus-center-stage">
+        {/* Custom Editable Session Goal / Title */}
+        <div className="focus-goal-container">
+          <input
+            ref={goalInputRef}
+            type="text"
+            className="focus-goal-input"
+            placeholder="Set a session focus goal... (e.g. Sprint #1)"
+            value={sessionGoal}
+            onChange={(e) => setSessionGoal(e.target.value)}
+            maxLength={100}
+            aria-label="Session focus goal"
+          />
+        </div>
+
         {/* Giant Monospace Timer */}
         <div
           className="focus-timer-display"
-          onClick={handleTogglePlay}
+          onClick={togglePlay}
           title="Click or press Spacebar to start/pause"
           aria-live="polite"
         >
-          {formatTime(timeLeft)}
+          {formatFocusTime(timeLeft)}
         </div>
 
         {/* Controls */}
@@ -349,7 +142,7 @@ export default function FocusSession({ task, onClose, onToggleTask, onCompleteSe
           <button
             type="button"
             className="btn-timer-primary"
-            onClick={handleTogglePlay}
+            onClick={togglePlay}
           >
             {isRunning ? (
               <>
@@ -372,7 +165,7 @@ export default function FocusSession({ task, onClose, onToggleTask, onCompleteSe
           <button
             type="button"
             className="btn-timer-secondary"
-            onClick={handleReset}
+            onClick={resetTimer}
             title="Reset timer (R)"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -384,33 +177,33 @@ export default function FocusSession({ task, onClose, onToggleTask, onCompleteSe
         </div>
 
         {/* Active Task Context Card */}
-        {task && (
+        {activeTask && (
           <div className="focus-task-card">
             <div className="focus-task-left">
               {onToggleTask && (
                 <button
                   type="button"
-                  className={`custom-checkbox-btn ${task.completed ? 'checked' : ''}`}
-                  onClick={() => onToggleTask(task)}
-                  aria-label={`Mark "${task.title}" as ${task.completed ? 'incomplete' : 'complete'}`}
+                  className={`custom-checkbox-btn ${activeTask.completed ? 'checked' : ''}`}
+                  onClick={() => onToggleTask(activeTask)}
+                  aria-label={`Mark "${activeTask.title}" as ${activeTask.completed ? 'incomplete' : 'complete'}`}
                 >
-                  {task.completed && (
+                  {activeTask.completed && (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   )}
                 </button>
               )}
-              <span className={`focus-task-title ${task.completed ? 'completed' : ''}`}>
-                {task.title}
+              <span className={`focus-task-title ${activeTask.completed ? 'completed' : ''}`}>
+                {activeTask.title}
               </span>
             </div>
-            <span className="focus-task-tag">{task.category || 'General'}</span>
+            <span className="focus-task-tag">{activeTask.category || 'General'}</span>
           </div>
         )}
       </main>
 
-      {/* Footer & Ambient Sound Generator */}
+      {/* Footer & Ambient Sound / Clock Tick Generator */}
       <footer className="focus-footer">
         <div className="ambient-audio-bar">
           <div className="ambient-presets-group">
@@ -419,35 +212,69 @@ export default function FocusSession({ task, onClose, onToggleTask, onCompleteSe
               <button
                 key={preset.id}
                 type="button"
-                className={`ambient-preset-btn ${ambientSound === preset.id ? 'active' : ''}`}
-                onClick={() => handleSelectPreset(preset.id)}
+                className={`ambient-preset-btn ${ambientPreset === preset.id ? 'active' : ''}`}
+                onClick={() => changeAmbientPreset(preset.id)}
               >
                 {preset.label}
               </button>
             ))}
           </div>
 
-          {ambientSound !== 'none' && (
-            <div className="ambient-volume-group">
-              <span className="ambient-label">Vol:</span>
-              <input
-                type="range"
-                className="volume-slider"
-                min="0"
-                max="1"
-                step="0.05"
-                value={volume}
-                onChange={(e) => setVolume(parseFloat(e.target.value))}
-                aria-label="Ambient sound volume"
-              />
-            </div>
-          )}
+          <div className="ambient-controls-right">
+            {/* Ambient Sound Volume */}
+            {ambientPreset !== 'none' && (
+              <div className="ambient-volume-group">
+                <span className="ambient-label">Noise Vol:</span>
+                <input
+                  type="range"
+                  className="volume-slider"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={ambientVolume}
+                  onChange={(e) => setAmbientVolume(parseFloat(e.target.value))}
+                  aria-label="Ambient noise volume"
+                />
+              </div>
+            )}
+
+            {/* Mechanical Clock Ticking Toggle */}
+            <button
+              type="button"
+              className={`btn-tick-toggle ${isTickingEnabled ? 'active' : ''}`}
+              onClick={() => setIsTickingEnabled(!isTickingEnabled)}
+              title="Toggle rhythmic mechanical clock ticking audio"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 14 10" />
+              </svg>
+              <span>Tick Sound: {isTickingEnabled ? 'ON' : 'OFF'}</span>
+            </button>
+
+            {/* Clock Ticking Volume */}
+            {isTickingEnabled && (
+              <div className="ambient-volume-group">
+                <span className="ambient-label">Tick Vol:</span>
+                <input
+                  type="range"
+                  className="volume-slider"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={tickingVolume}
+                  onChange={(e) => setTickingVolume(parseFloat(e.target.value))}
+                  aria-label="Clock ticking volume"
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="focus-shortcuts-legend">
           <span><kbd className="key-badge">Space</kbd> Start / Pause</span>
           <span><kbd className="key-badge">R</kbd> Reset</span>
-          <span><kbd className="key-badge">Esc</kbd> Exit</span>
+          <span><kbd className="key-badge">Esc</kbd> Minimize to PiP</span>
         </div>
       </footer>
     </div>

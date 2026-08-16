@@ -1,7 +1,8 @@
 /* ==========================================================================
-   Zen Pomodoro Focus Session Overlay - Utilitarian Monochromatic Styles
+   Zen Pomodoro Focus Session & Floating PiP Mini-Player - Utilitarian Styles
    ========================================================================== */
 
+/* Fullscreen Overlay */
 .focus-overlay {
   position: fixed;
   inset: 0;
@@ -73,7 +74,7 @@
   gap: 8px;
 }
 
-.btn-focus-close {
+.btn-focus-action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -87,7 +88,7 @@
   transition: all 0.15s;
 }
 
-.btn-focus-close:hover {
+.btn-focus-action:hover {
   background-color: var(--bg-hover);
   color: var(--text-primary);
   border-color: var(--border-dark);
@@ -99,10 +100,44 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 28px;
+  gap: 24px;
   max-width: 680px;
   width: 100%;
   text-align: center;
+}
+
+/* Custom Editable Session Goal / Title */
+.focus-goal-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.focus-goal-input {
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--border-medium);
+  padding: 4px 10px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.focus-goal-input:focus {
+  border-bottom: 1px solid var(--text-primary);
+}
+
+.focus-goal-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 15px;
 }
 
 /* Giant Monospace Timer */
@@ -239,9 +274,9 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  padding: 8px 14px;
+  padding: 10px 16px;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -285,16 +320,49 @@
   border-color: var(--text-primary);
 }
 
+.ambient-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .ambient-volume-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .volume-slider {
-  width: 80px;
+  width: 70px;
   accent-color: var(--text-primary);
   cursor: pointer;
+}
+
+/* Ticking Toggle Chip */
+.btn-tick-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-medium);
+  background-color: var(--bg-subtle);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.btn-tick-toggle:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-tick-toggle.active {
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  border-color: var(--text-primary);
 }
 
 /* Focus Shortcuts Legend */
@@ -307,4 +375,159 @@
   font-size: 11px;
   color: var(--text-subtle);
   font-family: var(--font-mono);
+}
+
+/* ==========================================================================
+   Floating Picture-in-Picture (PiP) Mini-Player Widget
+   ========================================================================== */
+
+.focus-mini-player {
+  position: fixed;
+  z-index: 9990;
+  width: 320px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.1);
+  color: var(--text-primary);
+  overflow: hidden;
+  user-select: none;
+  animation: mini-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes mini-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Drag Handle Header */
+.mini-player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-light);
+  cursor: grab;
+}
+
+.mini-player-header:active {
+  cursor: grabbing;
+}
+
+.mini-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mini-drag-dots {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.mini-mode-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+}
+
+.mini-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-mini-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.btn-mini-action:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn-mini-action.close:hover {
+  color: var(--status-danger-text);
+  background-color: var(--status-danger-bg);
+}
+
+/* Mini Player Body */
+.mini-player-body {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mini-body-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-timer-digits {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.mini-goal-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 4px;
+}
+
+.mini-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-mini-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background-color: var(--text-primary);
+  color: var(--accent-contrast);
+  transition: transform 0.1s, opacity 0.15s;
+}
+
+.btn-mini-play:hover {
+  opacity: 0.9;
+}
+
+.btn-mini-play:active {
+  transform: scale(0.95);
 }
