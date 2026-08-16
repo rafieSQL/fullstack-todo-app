@@ -12,7 +12,8 @@ import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
 import {
   listenAndProcessSpeech,
-  isSpeechRecognitionSupported
+  isSpeechRecognitionSupported,
+  processTextCommand
 } from './utils/audioRecorder.js'
 import './App.css'
 
@@ -102,10 +103,12 @@ export default function App() {
   const [toasts, setToasts] = useState([])
   const [busyTaskIds, setBusyTaskIds] = useState(new Set())
 
-  // Partner Ambient Voice Agent state (Serverless Audio Pipeline)
+  // Partner Ambient Voice Agent state
   const [isPartnerRecording, setIsPartnerRecording] = useState(false)
   const [isPartnerProcessing, setIsPartnerProcessing] = useState(false)
   const [interimVoiceText, setInterimVoiceText] = useState('')
+  const [isPartnerTextPromptOpen, setIsPartnerTextPromptOpen] = useState(false)
+  const [partnerPromptInput, setPartnerPromptInput] = useState('')
 
   const taskInputRef = useRef(null)
   const searchInputRef = useRef(null)
@@ -791,34 +794,9 @@ export default function App() {
     [session, showToast, loadActivities]
   )
 
-  // Partner Ambient Voice Agent Toggle & Serverless Audio Pipeline
-  // Partner Voice Agent - Direct Speech-to-LLM Pipeline (Browser SpeechRecognition + Groq Llama 3)
-  const handleTogglePartner = useCallback(async () => {
-    if (!isSpeechRecognitionSupported()) {
-      showToast(
-        'Browser Anda belum mendukung Speech Recognition. Gunakan Chrome atau Edge.',
-        'error'
-      )
-      return
-    }
-
-    if (isPartnerRecording || isPartnerProcessing) return
-
-    setIsPartnerRecording(true)
-    setIsPartnerProcessing(false)
-    setInterimVoiceText('🎙️ Mendengarkan suara Anda...')
-    sfx.playActivate()
-
-    try {
-      const data = await listenAndProcessSpeech((statusText) => {
-        setInterimVoiceText(statusText)
-      })
-
-      setIsPartnerRecording(false)
-      setIsPartnerProcessing(true)
-
-      const result = data?.result || {}
-      const transcript = data?.transcript || ''
+  // Centralized Partner Action Executor (Shared by Voice & Typed Fallback)
+  const executePartnerAction = useCallback(
+    async (result = {}, transcript = '') => {
       const action = result.action || 'UNKNOWN'
 
       if (action === 'CREATE_TASK') {
@@ -878,11 +856,69 @@ export default function App() {
           'info'
         )
       }
+    },
+    [session, handleCreateTask, handleClearCompleted, handleOpenFocusSession, showToast]
+  )
+
+  // Partner Typed Command Submission (Fallback when voice is unavailable)
+  const handlePartnerTextSubmit = useCallback(
+    async (e) => {
+      e?.preventDefault()
+      if (!partnerPromptInput.trim()) return
+      const text = partnerPromptInput.trim()
+      setIsPartnerTextPromptOpen(false)
+      setPartnerPromptInput('')
+      setIsPartnerProcessing(true)
+      setInterimVoiceText(`⚡ Memproses: "${text}"...`)
+      sfx.playActivate()
+
+      try {
+        const { transcript, result } = await processTextCommand(text, new Date().toISOString())
+        await executePartnerAction(result, transcript)
+      } catch (err) {
+        console.error('Partner text command error:', err)
+        sfx.playDeactivate()
+        showToast(err.message || 'Perintah tidak dapat diproses', 'error')
+        setInterimVoiceText(`Error: ${err.message}`)
+      } finally {
+        setIsPartnerProcessing(false)
+        setTimeout(() => {
+          setInterimVoiceText('')
+        }, 3500)
+      }
+    },
+    [partnerPromptInput, executePartnerAction, showToast]
+  )
+
+  // Partner Voice Agent - Direct Speech-to-LLM Pipeline with Zero-Fail Text Fallback
+  const handleTogglePartner = useCallback(async () => {
+    if (!isSpeechRecognitionSupported()) {
+      setIsPartnerTextPromptOpen(true)
+      return
+    }
+
+    if (isPartnerRecording || isPartnerProcessing) return
+
+    setIsPartnerRecording(true)
+    setIsPartnerProcessing(false)
+    setInterimVoiceText('🎙️ Mendengarkan suara Anda...')
+    sfx.playActivate()
+
+    try {
+      const data = await listenAndProcessSpeech((statusText) => {
+        setInterimVoiceText(statusText)
+      })
+
+      setIsPartnerRecording(false)
+      setIsPartnerProcessing(true)
+
+      await executePartnerAction(data?.result, data?.transcript)
     } catch (err) {
-      console.error('Partner voice processing error:', err)
+      console.warn('Partner voice notice (opening text fallback):', err.message)
       sfx.playDeactivate()
-      showToast(err.message, 'error')
-      setInterimVoiceText(`Error: ${err.message}`)
+      setIsPartnerTextPromptOpen(true)
+      showToast(`Partner Voice: ${err.message || 'Ketik perintah Anda di bawah'}.`, 'info')
+      setInterimVoiceText('Ketik perintah Anda pada kotak Partner...')
     } finally {
       setIsPartnerRecording(false)
       setIsPartnerProcessing(false)
@@ -893,10 +929,7 @@ export default function App() {
   }, [
     isPartnerRecording,
     isPartnerProcessing,
-    session,
-    handleCreateTask,
-    handleClearCompleted,
-    handleOpenFocusSession,
+    executePartnerAction,
     showToast
   ])
 
@@ -1009,6 +1042,67 @@ export default function App() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Partner Voice Fallback Typed Command Modal */}
+      {isPartnerTextPromptOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setIsPartnerTextPromptOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Partner Command Box"
+        >
+          <div
+            className="modal-content partner-fallback-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '480px', padding: '20px', borderRadius: '12px' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>
+                🎙️ Partner Assistant
+              </h3>
+              <button
+                type="button"
+                className="toast-close-btn"
+                onClick={() => setIsPartnerTextPromptOpen(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
+              Partner Voice sedang sibuk. Ketik perintah Anda di sini:
+            </p>
+            <form onSubmit={handlePartnerTextSubmit}>
+              <input
+                type="text"
+                autoFocus
+                className="task-input-primary"
+                value={partnerPromptInput}
+                onChange={(e) => setPartnerPromptInput(e.target.value)}
+                placeholder="Contoh: Tambah tugas Audit Database besok jam 10..."
+                style={{ width: '100%', marginBottom: '12px', padding: '10px' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsPartnerTextPromptOpen(false)}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={!partnerPromptInput.trim()}
+                >
+                  Kirim Perintah
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

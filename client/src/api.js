@@ -207,12 +207,13 @@ export async function createTask({ title, priority = 'medium', category = 'Gener
 
     if (error) throw new ApiError(error.message, 400, error)
 
-    await logActivity({
+    // Non-blocking activity logging
+    logActivity({
       type: 'create',
       message: `Created task "${data.title}" [${data.category} • ${data.priority.toUpperCase()}]`,
       userId,
       details: { taskId: data.id }
-    })
+    }).catch(() => {})
 
     return data
   } catch (err) {
@@ -290,11 +291,11 @@ export async function reorderTasks(orderedIds, userId = null) {
 
         await Promise.all(updatePromises)
 
-        await logActivity({
+        logActivity({
           type: 'reorder',
           message: `Reordered task sequence (${orderedIds.length} items)`,
           userId
-        })
+        }).catch(() => {})
 
         resolve({ count: orderedIds.length })
       } catch (err) {
@@ -329,13 +330,13 @@ export async function batchCompleteTasks(taskIds, completed = true, userId = nul
 
     if (error) throw new ApiError(error.message, 400, error)
 
-    await logActivity({
+    logActivity({
       type: 'batch-complete',
       message: `Marked ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} as ${
         completed ? 'completed' : 'active'
       }`,
       userId
-    })
+    }).catch(() => {})
 
     return { count: taskIds.length }
   } catch (err) {
@@ -363,11 +364,11 @@ export async function deleteTask(id, taskTitle = '', userId = null) {
     if (error) throw new ApiError(error.message, 400, error)
 
     if (taskTitle) {
-      await logActivity({
+      logActivity({
         type: 'delete',
         message: `Deleted task "${sanitizeText(taskTitle, 200)}"`,
         userId
-      })
+      }).catch(() => {})
     }
 
     return { id }
@@ -397,11 +398,11 @@ export async function clearCompletedTasks(userId = null) {
 
     if (error) throw new ApiError(error.message, 400, error)
 
-    await logActivity({
+    logActivity({
       type: 'clear-completed',
       message: 'Purged completed tasks',
       userId
-    })
+    }).catch(() => {})
 
     return { message: 'Cleared completed tasks' }
   } catch (err) {
@@ -421,48 +422,62 @@ export async function getActivityLog(limit = 15) {
   try {
     const { data, error } = await supabase
       .from('activity_logs')
-      .select(ACTIVITY_FIELDS)
+      .select('id, type, message, details, created_at')
       .order('created_at', { ascending: false })
       .limit(limit)
 
     if (error) {
-      console.warn('Activity log query notice:', error.message)
-      return []
+      console.warn('Activity log query notice (falling back gracefully):', error.message || error)
+      return mockActivities.slice(0, limit)
     }
-    return data || []
+    return Array.isArray(data) ? data : []
   } catch (err) {
-    console.warn('Failed to retrieve activity log:', err)
-    return []
+    console.warn('Failed to retrieve activity log (safely swallowed):', err?.message || err)
+    return mockActivities.slice(0, limit)
   }
 }
 
 /**
- * Record a system activity event
+ * Record a system activity event (non-blocking, safe failover)
  */
 export async function logActivity({ type, message, details = {}, userId = null }) {
   const cleanMessage = sanitizeText(message, 500)
   if (!cleanMessage) return null
 
+  const fallbackAct = {
+    id: `act-${Date.now()}`,
+    type,
+    message: cleanMessage,
+    details,
+    created_at: new Date().toISOString()
+  }
+
   if (!isSupabaseConfigured) {
-    const act = {
-      id: `act-${Date.now()}`,
-      type,
-      message: cleanMessage,
-      created_at: new Date().toISOString()
-    }
-    mockActivities.unshift(act)
+    mockActivities.unshift(fallbackAct)
     if (mockActivities.length > 30) mockActivities = mockActivities.slice(0, 30)
-    return act
+    return fallbackAct
   }
 
   try {
     const payload = { type, message: cleanMessage, details }
     if (userId) payload.user_id = userId
 
-    const { data } = await supabase.from('activity_logs').insert([payload]).select(ACTIVITY_FIELDS).single()
-    return data
-  } catch {
-    return null
+    const { data, error } = await supabase
+      .from('activity_logs')
+      .insert([payload])
+      .select('id, type, message, details, created_at')
+      .single()
+
+    if (error) {
+      console.warn('Failed to log activity to Supabase (non-blocking fallback used):', error.message || error)
+      mockActivities.unshift(fallbackAct)
+      return fallbackAct
+    }
+    return data || fallbackAct
+  } catch (err) {
+    console.warn('Error recording activity log (non-blocking fallback used):', err?.message || err)
+    mockActivities.unshift(fallbackAct)
+    return fallbackAct
   }
 }
 
