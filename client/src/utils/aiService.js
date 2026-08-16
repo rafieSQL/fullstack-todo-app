@@ -9,6 +9,33 @@ function capitalizeFirstLetter(str) {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }
 
+/**
+ * Get client's local timezone offset formatted as "+07:00" or "-05:00"
+ */
+export function getLocalTimezoneOffsetString(date = new Date()) {
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absMin = Math.abs(offsetMinutes)
+  const hours = String(Math.floor(absMin / 60)).padStart(2, '0')
+  const minutes = String(absMin % 60).padStart(2, '0')
+  return `${sign}${hours}:${minutes}`
+}
+
+/**
+ * Format Date object to full local ISO string including timezone offset (e.g. 2026-08-18T13:00:00+07:00)
+ */
+export function formatToLocalISOString(date = new Date(), offsetStr = null) {
+  const offset = offsetStr || getLocalTimezoneOffsetString(date)
+  const pad = (n) => String(n).padStart(2, '0')
+  const y = date.getFullYear()
+  const m = pad(date.getMonth() + 1)
+  const d = pad(date.getDate())
+  const h = pad(date.getHours())
+  const min = pad(date.getMinutes())
+  const s = pad(date.getSeconds())
+  return `${y}-${m}-${d}T${h}:${min}:${s}${offset}`
+}
+
 function isValidISO(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') return false
   const d = new Date(dateStr)
@@ -16,18 +43,33 @@ function isValidISO(dateStr) {
 }
 
 /**
- * Infer a sensible default deadline (today at 23:59:00 or tomorrow morning) so due_date is NEVER null
+ * Normalize an ISO string from LLM to match the user's local timezone offset
+ * If LLM returned "Z" or bare datetime, rewrite suffix with offsetStr to prevent UTC double-conversion.
  */
-function getDefaultDueDate(refDate = new Date()) {
+function normalizeTimezoneISO(isoStr, offsetStr) {
+  if (!isoStr || typeof isoStr !== 'string') return isoStr
+  let clean = isoStr.trim()
+  if (clean.endsWith('Z') || clean.endsWith('z')) {
+    clean = clean.replace(/\.\d{1,3}Z$/i, '').replace(/Z$/i, '') + offsetStr
+  } else if (!/[+-]\d{2}:\d{2}$/.test(clean)) {
+    clean = clean.replace(/\.\d{1,3}$/, '') + offsetStr
+  }
+  return clean
+}
+
+/**
+ * Infer a sensible default deadline (today at 23:59:00 or tomorrow morning) formatted in local timezone
+ */
+function getDefaultDueDate(refDate = new Date(), offsetStr = null) {
   const d = new Date(refDate)
-  // If later than 23:00, set to tomorrow at 09:00
+  const offset = offsetStr || getLocalTimezoneOffsetString(d)
   if (d.getHours() >= 23) {
     d.setDate(d.getDate() + 1)
     d.setHours(9, 0, 0, 0)
   } else {
     d.setHours(23, 59, 0, 0)
   }
-  return d.toISOString()
+  return formatToLocalISOString(d, offset)
 }
 
 /**
@@ -59,19 +101,20 @@ function extractJSON(text) {
   }
 }
 
-function fallbackToLocal(transcript, currentTimeISO = new Date().toISOString()) {
+function fallbackToLocal(transcript, currentTimeISO = null) {
   const local = parseVoiceIntent(transcript)
   let action = 'UNKNOWN'
   let replySummary = `Perintah: "${transcript}"`
   let targetView = null
-  const refDate = new Date(currentTimeISO)
-  const defaultDue = getDefaultDueDate(refDate)
+  const refDate = currentTimeISO ? new Date(currentTimeISO) : new Date()
+  const offsetStr = getLocalTimezoneOffsetString(refDate)
+  const defaultDue = getDefaultDueDate(refDate, offsetStr)
 
   const tasks = []
 
   if (local.type === 'ADD_TASK') {
     action = 'CREATE_TASKS'
-    const due = local.startTime || defaultDue
+    const due = local.startTime ? normalizeTimezoneISO(local.startTime, offsetStr) : defaultDue
     tasks.push({
       title: local.title || transcript,
       category: local.category || 'General',
@@ -82,7 +125,7 @@ function fallbackToLocal(transcript, currentTimeISO = new Date().toISOString()) 
     replySummary = `Tugas "${local.title || transcript}" berhasil dibuat dengan tenggat ${new Date(due).toLocaleDateString('id-ID')}.`
   } else if (local.type === 'SCHEDULE_TASK') {
     action = 'CREATE_TASKS'
-    const due = local.startTime || defaultDue
+    const due = local.startTime ? normalizeTimezoneISO(local.startTime, offsetStr) : defaultDue
     tasks.push({
       title: local.title || transcript,
       category: local.category || 'General',
@@ -106,8 +149,8 @@ function fallbackToLocal(transcript, currentTimeISO = new Date().toISOString()) 
     action,
     tasks,
     title: local.title || transcript,
-    start_time: local.startTime || defaultDue,
-    end_time: local.endTime || null,
+    start_time: local.startTime ? normalizeTimezoneISO(local.startTime, offsetStr) : defaultDue,
+    end_time: local.endTime ? normalizeTimezoneISO(local.endTime, offsetStr) : null,
     priority: local.priority ? capitalizeFirstLetter(local.priority) : 'Medium',
     category: local.category || 'General',
     target_view: targetView,
@@ -116,9 +159,10 @@ function fallbackToLocal(transcript, currentTimeISO = new Date().toISOString()) 
   }
 }
 
-function sanitizeAIResult(result, rawTranscript, currentTimeISO = new Date().toISOString()) {
+function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = null) {
   let action = result.action || 'UNKNOWN'
-  const defaultDue = getDefaultDueDate(new Date(currentTimeISO))
+  const refDate = currentTimeISO ? new Date(currentTimeISO) : new Date()
+  const defaultDue = getDefaultDueDate(refDate, offsetStr)
 
   // Normalize action names
   if (action === 'ADD_TASK' || action === 'CREATE_TASK') {
@@ -140,14 +184,15 @@ function sanitizeAIResult(result, rawTranscript, currentTimeISO = new Date().toI
       const prio = ['High', 'Medium', 'Low'].includes(capitalizeFirstLetter(t.priority))
         ? capitalizeFirstLetter(t.priority)
         : 'Medium'
-      const due = isValidISO(t.due_date) ? new Date(t.due_date).toISOString() : defaultDue
+      const rawDue = t.due_date || defaultDue
+      const due = normalizeTimezoneISO(rawDue, offsetStr)
       const duration = Math.max(15, parseInt(t.duration_minutes, 10) || 30)
 
       return {
         title: cleanTitle,
         category: cat,
         priority: prio,
-        due_date: due,
+        due_date: isValidISO(due) ? due : defaultDue,
         duration_minutes: duration
       }
     })
@@ -159,16 +204,15 @@ function sanitizeAIResult(result, rawTranscript, currentTimeISO = new Date().toI
     const prio = ['High', 'Medium', 'Low'].includes(capitalizeFirstLetter(result.priority))
       ? capitalizeFirstLetter(result.priority)
       : 'Medium'
-    const due = isValidISO(result.due_date || result.start_time)
-      ? new Date(result.due_date || result.start_time).toISOString()
-      : defaultDue
+    const rawDue = result.due_date || result.start_time || defaultDue
+    const due = normalizeTimezoneISO(rawDue, offsetStr)
 
     tasks = [
       {
         title: cleanTitle,
         category: cat,
         priority: prio,
-        due_date: due,
+        due_date: isValidISO(due) ? due : defaultDue,
         duration_minutes: 30
       }
     ]
@@ -197,12 +241,15 @@ function sanitizeAIResult(result, rawTranscript, currentTimeISO = new Date().toI
     }
   }
 
+  const rawStartTime = result.start_time || tasks[0]?.due_date || defaultDue
+  const rawEndTime = result.end_time
+
   return {
     action,
     tasks,
     title: result.title ? result.title.trim() : tasks[0]?.title || '',
-    start_time: result.start_time || tasks[0]?.due_date || defaultDue,
-    end_time: result.end_time || null,
+    start_time: normalizeTimezoneISO(rawStartTime, offsetStr),
+    end_time: rawEndTime ? normalizeTimezoneISO(rawEndTime, offsetStr) : null,
     priority: result.priority ? capitalizeFirstLetter(result.priority) : tasks[0]?.priority || 'Medium',
     category: result.category ? capitalizeFirstLetter(result.category) : tasks[0]?.category || 'General',
     target_view: targetView || null,
@@ -212,9 +259,9 @@ function sanitizeAIResult(result, rawTranscript, currentTimeISO = new Date().toI
 }
 
 /**
- * Parse user voice or text command into structured intent using Groq Llama 3 with Multi-Task Decomposition
+ * Parse user voice or text command into structured intent using Groq Llama 3 with exact Local Timezone Offset preservation
  */
-export async function parseCommandWithAI(transcript, currentTimeISO = new Date().toISOString()) {
+export async function parseCommandWithAI(transcript, currentTimeISO = null) {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY
 
   if (!apiKey || apiKey.trim() === '') {
@@ -222,14 +269,18 @@ export async function parseCommandWithAI(transcript, currentTimeISO = new Date()
     return fallbackToLocal(transcript, currentTimeISO)
   }
 
-  const now = new Date(currentTimeISO)
+  const now = currentTimeISO ? new Date(currentTimeISO) : new Date()
+  const offsetStr = getLocalTimezoneOffsetString(now)
+  const localReferenceISO = formatToLocalISOString(now, offsetStr)
+
   const dayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const dayNamesId = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
   const dayOfWeekEn = dayNamesEn[now.getDay()]
   const dayOfWeekId = dayNamesId[now.getDay()]
 
   const systemPrompt = `You are an elite productivity AI agent and multi-task scheduling engine.
-Current reference datetime: ${currentTimeISO} (${dayOfWeekEn} / ${dayOfWeekId}).
+Current Local Datetime: ${localReferenceISO} (${dayOfWeekEn} / ${dayOfWeekId}).
+User's Local Timezone Offset: ${offsetStr} (e.g., UTC+7 WIB).
 
 Your job is to parse user commands (Indonesian or English) into structured actions.
 KEY CAPABILITY: MULTI-TASK DECOMPOSITION & MANDATORY DEADLINES.
@@ -237,18 +288,18 @@ If the user provides a sentence containing one or more tasks, steps, plans, or d
 Decompose them into an array of actionable tasks under "action": "CREATE_TASKS".
 If user gives a single task, also output "action": "CREATE_TASKS" with 1 item in "tasks" array.
 
-RULES FOR TASKS & DEADLINES:
-1. "due_date" is MANDATORY and must NEVER be null:
-   - If exact day and time is mentioned (e.g., "selasa jam 13:00"), calculate the exact future ISO-8601 timestamp based on reference time.
-   - If only a day is mentioned without time (e.g., "besok", "hari jumat"), set due_date to that day at 17:00:00 (or 23:59:00).
-   - If no deadline or time is mentioned at all, infer a sensible default (e.g., today at 23:59:00 or tomorrow morning).
-2. "duration_minutes": Duration in minutes (default 30 or 60).
-3. "priority": "High" | "Medium" | "Low". (e.g., Exams, tests, urgent deadlines = "High").
-4. "category": "General" | "Engineering" | "Design" | "Personal".
-5. Non-task actions:
-   - "SCHEDULE_EVENT" for direct calendar slot blocks.
-   - "NAVIGATE" for view switching ("kalender", "tugas", "fokus").
-   - "CLEAR_COMPLETED" for clearing finished items.
+CRITICAL TIMEZONE & OFFSET RULES:
+1. The user's local timezone offset is: ${offsetStr}.
+2. When user specifies an hour (e.g. "jam 13" or "jam 07" or "13:00" or "pukul 13"), this refers to their LOCAL time (${offsetStr}).
+3. ALWAYS output "due_date", "start_time", and "end_time" formatted with the user's exact timezone offset "${offsetStr}" (e.g. "YYYY-MM-DDTHH:MM:00${offsetStr}").
+4. NEVER output "Z" UTC timestamps and NEVER shift or convert the user's requested local hours into UTC.
+   - Example: If user says "ujian matematika selasa jam 13:00", the "due_date" MUST literally be "2026-08-18T13:00:00${offsetStr}".
+   - Example: If user says "belajar jam 7 pagi", the "due_date" MUST literally be "2026-08-18T07:00:00${offsetStr}".
+5. If only a date is mentioned without time (e.g., "besok", "hari jumat"), set due_date to that date at 17:00:00${offsetStr} or 23:59:00${offsetStr}.
+6. If no deadline or time is mentioned at all, infer a sensible default (e.g., today at 23:59:00${offsetStr} or tomorrow morning).
+7. "duration_minutes": Duration in minutes (default 30 or 60).
+8. "priority": "High" | "Medium" | "Low". (Exams, tests, urgent deadlines = "High").
+9. "category": "General" | "Engineering" | "Design" | "Personal".
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {
@@ -258,13 +309,13 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
       "title": "Clean, concise actionable title",
       "category": "General" | "Engineering" | "Design" | "Personal",
       "priority": "High" | "Medium" | "Low",
-      "due_date": "ISO-8601 string (NEVER null)",
+      "due_date": "YYYY-MM-DDTHH:MM:00${offsetStr}",
       "duration_minutes": 30
     }
   ],
   "title": "Clean concise title for single event/task",
-  "start_time": "ISO-8601 string or null",
-  "end_time": "ISO-8601 string or null",
+  "start_time": "YYYY-MM-DDTHH:MM:00${offsetStr} or null",
+  "end_time": "YYYY-MM-DDTHH:MM:00${offsetStr} or null",
   "priority": "High" | "Medium" | "Low",
   "category": "General" | "Engineering" | "Design" | "Personal",
   "target_view": "calendar" | "tasks" | "focus" | null,
@@ -321,12 +372,12 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
       const fbData = await fallbackResp.json()
       const content = fbData.choices?.[0]?.message?.content
       const parsed = extractJSON(content)
-      if (parsed) return sanitizeAIResult(parsed, transcript, currentTimeISO)
+      if (parsed) return sanitizeAIResult(parsed, transcript, offsetStr, currentTimeISO)
     } else {
       const data = await response.json()
       const content = data.choices?.[0]?.message?.content
       const parsed = extractJSON(content)
-      if (parsed) return sanitizeAIResult(parsed, transcript, currentTimeISO)
+      if (parsed) return sanitizeAIResult(parsed, transcript, offsetStr, currentTimeISO)
     }
 
     throw new Error('Could not parse valid JSON from Groq AI response.')
