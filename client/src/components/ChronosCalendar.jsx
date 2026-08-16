@@ -43,6 +43,13 @@ export default function ChronosCalendar({
   const [sidebarSearch, setSidebarSearch] = useState('')
   const [isSidebarDragOver, setIsSidebarDragOver] = useState(false)
 
+  // Real-time minute ticker to refresh dynamic Overdue calculations without DB writes
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(timer)
+  }, [])
+
   // In-Sidebar Quick Task Creator State
   const [quickTitle, setQuickTitle] = useState('')
   const [quickCategory, setQuickCategory] = useState('General')
@@ -148,60 +155,15 @@ export default function ChronosCalendar({
     [tasks]
   )
 
-  // Auto-Accomplish on Deadline Pass Engine (with race condition locks)
-  useEffect(() => {
-    const checkAndAutoAccomplish = async () => {
-      if (isInteractingRef.current) return
-
-      const currentMs = new Date().getTime()
-      const expiredItems = events.filter(
-        (ev) =>
-          !isItemCompleted(ev) &&
-          !busyEventIdsRef.current.has(ev.id) &&
-          currentMs >= new Date(ev.end_time).getTime()
-      )
-
-      if (expiredItems.length > 0) {
-        expiredItems.forEach((ev) => busyEventIdsRef.current.add(ev.id))
-
-        // Optimistically update calendar state
-        setEvents((prev) =>
-          prev.map((ev) =>
-            !ev.is_completed && currentMs >= new Date(ev.end_time).getTime()
-              ? { ...ev, is_completed: true }
-              : ev
-          )
-        )
-
-        for (const exp of expiredItems) {
-          // Sync with main task registry
-          if (exp.task_id && onToggleTask) {
-            const matched = tasks.find((t) => t.id === exp.task_id)
-            if (matched && !matched.completed) {
-              onToggleTask(matched)
-            }
-          }
-
-          try {
-            await updateCalendarEvent(exp.id, { is_completed: true })
-            logActivity({
-              type: 'complete',
-              message: `Auto-accomplished "${exp.title}" on deadline expiration`,
-              userId: user?.id
-            })
-          } catch (err) {
-            console.error('Failed to auto-accomplish task on deadline:', err)
-          } finally {
-            busyEventIdsRef.current.delete(exp.id)
-          }
-        }
-      }
-    }
-
-    checkAndAutoAccomplish()
-    const timer = setInterval(checkAndAutoAccomplish, 15000)
-    return () => clearInterval(timer)
-  }, [events, tasks, onToggleTask, isItemCompleted, user])
+  // Helper to check if an uncompleted task has exceeded its deadline (Overdue)
+  const isItemOverdue = useCallback(
+    (ev) => {
+      if (isItemCompleted(ev)) return false
+      if (!ev.end_time) return false
+      return new Date().getTime() > new Date(ev.end_time).getTime()
+    },
+    [isItemCompleted]
+  )
 
   // Unassigned Backlog Tasks (tasks in registry that are NOT completed and NOT scheduled)
   const unassignedTasks = useMemo(() => {
@@ -361,11 +323,11 @@ export default function ChronosCalendar({
     }
   }
 
-  // Handle Dragging Scheduled Task on Grid (Locked for completed tasks)
+  // Handle Dragging Scheduled Task on Grid (Locked for completed tasks, Allowed for Overdue & Active)
   const handleEventDragStart = (e, event) => {
     if (isItemCompleted(event)) {
       e.preventDefault()
-      showToast('Task is already completed and cannot be rescheduled.', 'warning')
+      showToast('Completed task is locked.', 'warning')
       return
     }
     e.stopPropagation()
@@ -392,7 +354,7 @@ export default function ChronosCalendar({
     setDragOverSlot(null)
   }
 
-  // Drop on Slot (Schedule Task OR Reschedule Task with strict sanitization, upsert fallback & rollback)
+  // Drop on Slot (Schedule Task OR Reschedule Overdue/Active Task)
   const handleSlotDrop = async (e, date, hour) => {
     e.preventDefault()
     e.stopPropagation()
@@ -421,10 +383,10 @@ export default function ChronosCalendar({
       return
     }
 
-    // Intercept completed tasks from being dropped or rescheduled
+    // Guard: Intercept completed tasks from being rescheduled
     if (isDroppingEvent && isItemCompleted(activeItem)) {
       isInteractingRef.current = false
-      showToast('Task is already completed and cannot be rescheduled.', 'warning')
+      showToast('Completed task is locked.', 'warning')
       return
     }
 
@@ -432,22 +394,18 @@ export default function ChronosCalendar({
     start.setHours(hour, 0, 0, 0)
 
     if (isDroppingEvent) {
-      // Reschedule existing task to new time
+      // Reschedule existing active or overdue task to new time slot
       const origStart = new Date(activeItem.start_time).getTime()
       const origEnd = new Date(activeItem.end_time).getTime()
       const durationMs = Math.max(1800000, origEnd - origStart)
       const end = new Date(start.getTime() + durationMs)
-
-      const isPast = new Date().getTime() >= end.getTime()
-      const nextCompleted = isPast || Boolean(activeItem.is_completed)
 
       busyEventIdsRef.current.add(activeItem.id)
 
       const updatedEvent = {
         ...activeItem,
         start_time: start.toISOString(),
-        end_time: end.toISOString(),
-        is_completed: nextCompleted
+        end_time: end.toISOString()
       }
 
       // Optimistic state update
@@ -458,12 +416,11 @@ export default function ChronosCalendar({
       try {
         const saved = await updateCalendarEvent(activeItem.id, {
           title: updatedEvent.title,
-          start_time: updatedEvent.start_time,
-          end_time: updatedEvent.end_time,
+          start_time: start.toISOString(),
+          end_time: end.toISOString(),
           category: updatedEvent.category,
           priority: updatedEvent.priority,
           auto_morph: updatedEvent.auto_morph,
-          is_completed: nextCompleted,
           task_id: updatedEvent.task_id
         })
 
@@ -471,19 +428,7 @@ export default function ChronosCalendar({
           setEvents((prev) => prev.map((ev) => (ev.id === activeItem.id ? saved : ev)))
         }
 
-        // Synchronize linked task in main registry if dropped into the past
-        if (isPast && activeItem.task_id && onToggleTask) {
-          const matched = tasks.find((t) => t.id === activeItem.task_id)
-          if (matched && !matched.completed) {
-            onToggleTask(matched)
-          }
-        }
-
-        if (isPast) {
-          showToast(`Scheduled and marked "${activeItem.title}" as completed`)
-        } else {
-          showToast(`Rescheduled "${activeItem.title}" to ${formatHour(hour)}`)
-        }
+        showToast(`Rescheduled "${activeItem.title}" to ${formatHour(hour)}`)
 
         if (changedEvents.length > 0) {
           for (const ev of changedEvents) {
@@ -499,7 +444,6 @@ export default function ChronosCalendar({
         }
       } catch (err) {
         console.error('Reschedule Error Details:', err)
-        // Roll back to previous events state
         setEvents(previousEvents)
         showToast(err.message || 'Failed to reschedule task.', 'error')
       } finally {
@@ -511,10 +455,9 @@ export default function ChronosCalendar({
       return
     }
 
-    // Schedule task from backlog
+    // Schedule new task from backlog
     const end = new Date(start)
     end.setHours(hour + 1, 0, 0, 0)
-    const isPast = new Date().getTime() >= end.getTime()
 
     const tempId = `temp-${activeItem.id}-${start.getTime()}`
     busyEventIdsRef.current.add(tempId)
@@ -528,7 +471,7 @@ export default function ChronosCalendar({
       category: activeItem.category || 'General',
       priority: activeItem.priority || 'medium',
       auto_morph: true,
-      is_completed: isPast,
+      is_completed: false,
       created_at: start.toISOString()
     }
 
@@ -545,7 +488,7 @@ export default function ChronosCalendar({
         category: activeItem.category || 'General',
         priority: activeItem.priority || 'medium',
         autoMorph: true,
-        isCompleted: isPast,
+        isCompleted: false,
         userId: user?.id
       })
 
@@ -557,18 +500,7 @@ export default function ChronosCalendar({
       const { morphedEvents, changedEvents } = morphSchedule(updatedList, autoMorphEnabled)
       setEvents(morphedEvents)
 
-      if (isPast && onToggleTask) {
-        const matched = tasks.find((t) => t.id === activeItem.id)
-        if (matched && !matched.completed) {
-          onToggleTask(matched)
-        }
-      }
-
-      if (isPast) {
-        showToast(`Scheduled and marked "${activeItem.title}" as completed`)
-      } else {
-        showToast(`Scheduled "${activeItem.title}" at ${formatHour(hour)}`)
-      }
+      showToast(`Scheduled "${activeItem.title}" at ${formatHour(hour)}`)
 
       logActivity({
         type: 'create',
@@ -652,11 +584,11 @@ export default function ChronosCalendar({
     }
   }
 
-  // Bottom Edge Duration Resize Listeners (Locked for completed tasks)
+  // Bottom Edge Duration Resize Listeners (Locked for completed tasks, allowed for Overdue & Active)
   const handleResizeStart = (e, event) => {
     if (isItemCompleted(event)) {
       e.preventDefault()
-      showToast('Task is already completed and cannot be resized.', 'warning')
+      showToast('Completed task is locked.', 'warning')
       return
     }
     e.stopPropagation()
@@ -1066,15 +998,22 @@ export default function ChronosCalendar({
                     <span className="month-cell-number">{day.getDate()}</span>
                     {dayEvents.slice(0, 4).map((ev) => {
                       const isDone = isItemCompleted(ev)
+                      const isOverdue = isItemOverdue(ev)
 
                       return (
                         <div
                           key={ev.id}
-                          className={`month-event-pill ${isDone ? 'is-completed' : ''}`}
+                          className={`month-event-pill ${isDone ? 'is-completed' : ''} ${isOverdue ? 'is-overdue' : ''}`}
                           onClick={(e) => handleEventClick(e, ev)}
-                          title={`${ev.title} (${formatTimeShort(ev.start_time)})`}
+                          title={
+                            isDone
+                              ? `✓ ${ev.title} (Completed)`
+                              : isOverdue
+                              ? `⚠️ ${ev.title} (Overdue - Click or drag to reschedule)`
+                              : `${ev.title} (${formatTimeShort(ev.start_time)})`
+                          }
                         >
-                          {isDone ? '✓ ' : ''}
+                          {isDone ? '✓ ' : isOverdue ? '⚠️ ' : ''}
                           {ev.title}
                         </div>
                       )
@@ -1160,16 +1099,17 @@ export default function ChronosCalendar({
                       )
                     })}
 
-                    {/* Scheduled Task Cards */}
+                    {/* Scheduled Task Cards (Active, Overdue, or Completed) */}
                     {dayEvents.map((event) => {
                       const pos = getEventPosition(event.start_time, event.end_time)
                       const categoryClass = `cat-${event.category || 'General'}`
                       const isDone = isItemCompleted(event)
+                      const isOverdue = isItemOverdue(event)
 
                       return (
                         <div
                           key={event.id}
-                          className={`chronos-event-card ${categoryClass} ${isDone ? 'is-completed' : ''} ${event._morphed ? 'morphed' : ''}`}
+                          className={`chronos-event-card ${categoryClass} ${isDone ? 'is-completed' : ''} ${isOverdue ? 'is-overdue' : ''} ${event._morphed ? 'morphed' : ''}`}
                           style={{
                             top: pos.top,
                             height: pos.height
@@ -1179,7 +1119,9 @@ export default function ChronosCalendar({
                           onClick={(e) => handleEventClick(e, event)}
                           title={
                             isDone
-                              ? `✓ ${event.title} (Completed - Locked from Rescheduling)`
+                              ? `✓ ${event.title} (Completed - Locked)`
+                              : isOverdue
+                              ? `⚠️ ${event.title} (Overdue - Drag to reschedule or check to accomplish)`
                               : `${event.title} (${formatTimeShort(event.start_time)} - ${formatTimeShort(event.end_time)}) — Drag to reschedule or drag to sidebar to unschedule`
                           }
                         >
@@ -1204,7 +1146,10 @@ export default function ChronosCalendar({
                               {isDone && (
                                 <span className="event-completed-badge">✓ DONE</span>
                               )}
-                              {!isDone && event.auto_morph && (
+                              {isOverdue && (
+                                <span className="event-overdue-badge">OVERDUE</span>
+                              )}
+                              {!isDone && !isOverdue && event.auto_morph && (
                                 <span className="event-morph-badge" title="Auto-Morph Active">
                                   ⚡
                                 </span>
@@ -1217,11 +1162,11 @@ export default function ChronosCalendar({
                           <div className="event-card-footer">
                             <span>{event.category || 'General'}</span>
                             <span className="event-card-badge">
-                              {isDone ? 'COMPLETED' : event.priority || 'MED'}
+                              {isDone ? 'COMPLETED' : isOverdue ? 'OVERDUE' : event.priority || 'MED'}
                             </span>
                           </div>
 
-                          {/* Bottom Edge Resize Handle (Active for uncompleted tasks only) */}
+                          {/* Bottom Edge Resize Handle (Active for uncompleted tasks) */}
                           {!isDone && (
                             <div
                               className="event-resize-handle"
