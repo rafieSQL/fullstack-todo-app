@@ -413,23 +413,46 @@ export async function clearCompletedTasks(userId = null) {
 /**
  * Fetch recent activity events with explicit column selection
  */
+/**
+ * Retrieve recent system activities
+ * Safely handles missing 'type' column with fallback to id, message, details, created_at
+ */
 export async function getActivityLog(limit = 15) {
   if (!isSupabaseConfigured) {
     return mockActivities.slice(0, limit)
   }
 
   try {
-    const { data, error } = await supabase
+    // Attempt standard query first
+    let res = await supabase
       .from('activity_logs')
-      .select('id, type, message, details, created_at')
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(limit)
 
-    if (error) {
-      console.warn('Activity log query notice (falling back gracefully):', error.message || error)
+    // If query fails (e.g., column mismatch or specific column error), fallback to safe core columns
+    if (res.error) {
+      res = await supabase
+        .from('activity_logs')
+        .select('id, message, details, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit)
+    }
+
+    if (res.error) {
+      console.warn('Activity log query notice (falling back gracefully):', res.error.message || res.error)
       return mockActivities.slice(0, limit)
     }
-    return Array.isArray(data) ? data : []
+
+    return Array.isArray(res.data)
+      ? res.data.map((d) => ({
+          id: d.id,
+          type: d.type || d.action || 'info',
+          message: d.message || d.content || '',
+          details: d.details || {},
+          created_at: d.created_at || new Date().toISOString()
+        }))
+      : []
   } catch (err) {
     console.warn('Failed to retrieve activity log (safely swallowed):', err?.message || err)
     return mockActivities.slice(0, limit)
@@ -438,14 +461,15 @@ export async function getActivityLog(limit = 15) {
 
 /**
  * Record a system activity event (non-blocking, safe failover)
+ * Safely falls back if 'type' column is absent in the database schema
  */
-export async function logActivity({ type, message, details = {}, userId = null }) {
+export async function logActivity({ type = 'info', message, details = {}, userId = null }) {
   const cleanMessage = sanitizeText(message, 500)
   if (!cleanMessage) return null
 
   const fallbackAct = {
     id: `act-${Date.now()}`,
-    type,
+    type: type || 'info',
     message: cleanMessage,
     details,
     created_at: new Date().toISOString()
@@ -458,21 +482,39 @@ export async function logActivity({ type, message, details = {}, userId = null }
   }
 
   try {
-    const payload = { type, message: cleanMessage, details }
+    const payload = { type: type || 'info', message: cleanMessage, details }
     if (userId) payload.user_id = userId
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('activity_logs')
       .insert([payload])
-      .select('id, type, message, details, created_at')
+      .select('id, message, details, created_at')
       .single()
 
     if (error) {
-      console.warn('Failed to log activity to Supabase (non-blocking fallback used):', error.message || error)
+      // If column 'type' does not exist in the remote schema, retry inserting without 'type'
+      const retryPayload = { message: cleanMessage, details }
+      if (userId) retryPayload.user_id = userId
+
+      const retryRes = await supabase
+        .from('activity_logs')
+        .insert([retryPayload])
+        .select('id, message, details, created_at')
+        .single()
+
+      if (!retryRes.error && retryRes.data) {
+        return {
+          ...retryRes.data,
+          type: type || 'info'
+        }
+      }
+
+      console.warn('Activity log notice (falling back gracefully):', error.message || error)
       mockActivities.unshift(fallbackAct)
       return fallbackAct
     }
-    return data || fallbackAct
+
+    return data ? { ...data, type: type || 'info' } : fallbackAct
   } catch (err) {
     console.warn('Error recording activity log (non-blocking fallback used):', err?.message || err)
     mockActivities.unshift(fallbackAct)
