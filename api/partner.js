@@ -40,7 +40,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Rate Limiter Check di baris paling awal
+    // Rate Limiter Check
     if (ratelimit) {
       const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || '127.0.0.1';
       const { success, reset } = await ratelimit.limit(`rate_${ip}`);
@@ -75,14 +75,14 @@ export default async function handler(req, res) {
     const rawMessage = (message || incomingTranscript || '').trim();
 
     if (!rawMessage) {
-      return res.status(400).json({ error: 'Message is required' });
+      return res.status(400).json({ error: 'Pesan kosong' });
     }
 
     const userTimezone = timezone || 'Asia/Jakarta';
     const refTime = clientTime || new Date().toISOString();
 
     const rawTasks = tasks.length > 0 ? tasks : activeTasks.length > 0 ? activeTasks : existingTasks;
-    const simplifiedTasks = rawTasks.slice(0, 20).map((t) => ({
+    const simplifiedTasks = rawTasks.slice(0, 30).map((t) => ({
       id: t.id || t._id,
       title: t.title || t.text,
       completed: Boolean(t.completed)
@@ -91,32 +91,24 @@ export default async function handler(req, res) {
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
-    const systemInstruction = `Kamu adalah asisten to-do list cerdas berbahasa Indonesia santai dan ramah.
+    const systemInstruction = `Kamu adalah parser perintah sistem to-do list berbasis JSON. Jangan membuat lelucon atau kalimat bertele-tele.
 WAKTU SEKARANG: ${refTime} (${userTimezone})
 
-DAFTAR TUGAS AKTIF PENGGUNA SAAT INI:
-${JSON.stringify(simplifiedTasks, null, 2)}
+DAFTAR TUGAS SAAT INI:
+${JSON.stringify(simplifiedTasks)}
 
-ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
-1. Pahami Sinonim & Bahasa Santai Sehari-hari:
-   - SELESAI / COMPLETE: "selesai", "selesain", "kelar", "beres", "udah", "centang", "tandai", "beresin", "sudah selesai", "done".
-   - HAPUS / DELETE: "hapus", "buang", "ilangin", "delete", "singkirkan", "batalkan", "hapusin".
-   - BULK DELETE: "hapus semua [nama]", "bersihkan semua [nama]", "delete all [nama]", "hapus duplikat [nama]".
-   - BUAT / CREATE: "tambah", "bikin", "ingatkan", "buat to-do", "jadwalkan", "catat", "tambahin".
+PEMETAAN INTENT:
+1. "BULK_DELETE_TASK": Jika pengguna meminta menghapus SEMUA tugas atau banyak tugas yang cocok/duplikat (misal: "hapus semua main bareng", "bersihkan"). Isi 'target_task_ids' dengan array SEMUA ID yang cocok dari daftar di atas.
+2. "DELETE_TASK": Jika pengguna meminta hapus satu tugas spesifik. Ambil ID yang cocok dari daftar ke 'target_task_id'.
+3. "COMPLETE_TASK": Jika pengguna menyebut selesai/sudah/kelar/centang/tandai. Ambil ID yang cocok dari daftar ke 'target_task_id'.
+4. "CREATE_TASK": Jika pengguna ingin membuat tugas baru. Isi 'taskData' ({ title, priority, category }).
+5. "CHAT": Pertanyaan umum di luar operasi tugas.
 
-2. Gunakan PENCOCOKAN FLEKSIBEL (Fuzzy Matching):
-   - Jika pengguna berkata "hapus semua [nama]" atau ada banyak task duplikat yang ingin dihapus:
-     Set action = "BULK_DELETE_TASK", dan kumpulkan SEMUA id task yang cocok ke dalam array "target_task_ids": ["id1", "id2", ...].
-   - Jika pengguna menyebut nama yang mirip untuk 1 task (contoh: "maen bareng" cocok dengan "Main bareng temen"), PILIH TASK TERSEBUT dan ambil 'id'-nya sebagai 'target_task_id'!
-   - Jangan kaku terhadap typo, variasi pelafalan lisan, atau imbuhan kata.
-   - JANGAN PERNAH membuat task baru jika maksud pengguna adalah menyelesaikan atau menghapus task yang mirip di atas!
-
-3. Format Output JSON:
+Format JSON Output Murni:
 {
-  "action": "BULK_DELETE_TASK" | "COMPLETE_TASK" | "DELETE_TASK" | "CREATE_TASK" | "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "CHAT",
-  "target_task_ids": ["ID1", "ID2"],
-  "target_task_id": "ID_TUGAS_ATAU_NULL",
-  "targetId": "ID_TUGAS_ATAU_NULL",
+  "action": "BULK_DELETE_TASK" | "DELETE_TASK" | "COMPLETE_TASK" | "CREATE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "CHAT",
+  "target_task_id": "string id atau null",
+  "target_task_ids": ["id1", "id2"],
   "taskData": {
     "title": "string",
     "priority": "Low" | "Medium" | "High",
@@ -127,13 +119,10 @@ ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
   "priority": "Low" | "Medium" | "High",
   "workspace": "General" | "Engineering" | "Design" | "Personal",
   "category": "General" | "Engineering" | "Design" | "Personal",
-  "scheduled_at": "ISO-8601 string or null",
-  "due_date": "ISO-8601 string or null",
-  "reply": "Kalimat konfirmasi santai dan singkat untuk diucapkan ke user",
-  "confirmation_reply": "Kalimat konfirmasi santai dan singkat untuk diucapkan ke user"
+  "reply": "Konfirmasi singkat maksimal 1 kalimat"
 }`;
 
-    // Option A: Gemini API (if GEMINI_API_KEY is available)
+    // Option A: Gemini API (gemini-2.0-flash / 2.5) with temperature 0.0
     if (geminiKey) {
       try {
         const geminiRes = await fetch(
@@ -142,10 +131,10 @@ ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nPesan Pengguna: "${rawMessage}"\n\nRespon JSON:` }] }],
+              contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nPerintah: "${rawMessage}"\n\nRespon JSON:` }] }],
               generationConfig: {
                 responseMimeType: 'application/json',
-                temperature: 0.1
+                temperature: 0.0
               }
             })
           }
@@ -167,7 +156,7 @@ ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
       }
     }
 
-    // Option B: Groq Llama 3 (if GROQ_API_KEY is available)
+    // Option B: Groq Llama 3 with temperature 0.0
     if (groqKey) {
       try {
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -180,9 +169,9 @@ ATURAN PEMAHAMAN INTENT & PENCOCOKAN FLEKSIBEL (FUZZY MATCHING):
             model: 'llama-3.3-70b-versatile',
             messages: [
               { role: 'system', content: systemInstruction },
-              { role: 'user', content: `Pesan Pengguna: "${rawMessage}"` }
+              { role: 'user', content: `Perintah: "${rawMessage}"` }
             ],
-            temperature: 0.1,
+            temperature: 0.0,
             response_format: { type: 'json_object' }
           })
         });

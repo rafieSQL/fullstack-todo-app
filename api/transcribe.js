@@ -30,16 +30,17 @@ export default async function handler(req, res) {
       }
     }
 
-    const { audioBase64, mimeType = 'audio/webm' } = body || {};
+    const { audio, audioBase64: altAudio, mimeType = 'audio/webm' } = body || {};
+    const audioData = audio || altAudio;
 
-    if (!audioBase64) {
+    if (!audioData) {
       return res.status(400).json({ error: 'Audio data is required' });
     }
 
     const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
 
-    // 1. Primary: Google Gemini Audio Understanding API (gemini-2.0-flash)
+    // 1. Primary: Google Gemini Audio Understanding API (gemini-2.0-flash / 2.5) with temperature 0.0
     if (geminiKey) {
       try {
         const cleanMime = (mimeType || 'audio/webm').split(';')[0];
@@ -56,20 +57,21 @@ export default async function handler(req, res) {
                     {
                       inlineData: {
                         mimeType: cleanMime,
-                        data: audioBase64
+                        data: audioData
                       }
                     },
                     {
-                      text: `Dengarkan audio bahasa Indonesia ini secara teliti.
-- Audio berisi perintah manajemen tugas / to-do list (misal: "selesaikan", "selesain", "hapus", "ilangin", "tambah", "kerjakan", nama tugas, jadwal, dsb).
-- Transkripsikan kata per kata secara akurat meskipun ada logat santai, slang, atau singkatan sehari-hari (contoh: "maen" -> "main", "udah" -> "sudah", "kelar" -> "kelar").
-- Hanya kembalikan teks hasil transkripsi murni tanpa tanda kutip atau penjelasan tambahan.`
+                      text: `Transkripsikan perintah suara to-do list berikut secara akurat dan literal dalam bahasa Indonesia.
+ATURAN KETAT:
+- Jangan tambahkan salam pembuka/penutup, jangan berasumsi, dan jangan membuat lelucon.
+- Jika audio hanya berisi hening, nafas, desah, atau noise tanpa kata yang jelas, kembalikan teks kosong "" tanpa karakter apa pun.
+- Jika ada kata yang jelas, transkripsikan kata per kata secara murni tanpa tanda kutip.`
                     }
                   ]
                 }
               ],
               generationConfig: {
-                temperature: 0.1
+                temperature: 0.0
               }
             })
           }
@@ -77,10 +79,13 @@ export default async function handler(req, res) {
 
         if (geminiRes.ok) {
           const geminiData = await geminiRes.json();
-          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-          if (text) {
-            return res.status(200).json({ text });
+          let text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          text = text.replace(/^["']|["']$/g, '').trim();
+          // Suppress common silence hallucinations
+          if (/^(hai\s*bang|halo|hello|tes|test|terima\s*kasih|thank\s*you)$/i.test(text)) {
+            text = '';
           }
+          return res.status(200).json({ text });
         }
       } catch (geminiErr) {
         console.warn('Gemini Audio Transcribe error, attempting Groq fallback:', geminiErr.message);
@@ -90,14 +95,15 @@ export default async function handler(req, res) {
     // 2. Fallback: Groq Whisper API (whisper-large-v3)
     if (groqKey) {
       try {
-        const buffer = Buffer.from(audioBase64, 'base64');
+        const buffer = Buffer.from(audioData, 'base64');
         const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
         const ext = mimeType?.includes('mp4') ? 'mp4' : mimeType?.includes('ogg') ? 'ogg' : 'webm';
 
         const pre = Buffer.from(
           `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-large-v3\r\n` +
             `--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\nid\r\n` +
-            `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nPerintah to-do list bahasa Indonesia: selesaikan, hapus, tambah, jadwal\r\n` +
+            `--${boundary}\r\nContent-Disposition: form-data; name="temperature"\r\n\r\n0.0\r\n` +
+            `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nPerintah to-do list: selesaikan, hapus semua, tambah\r\n` +
             `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${
               mimeType || 'audio/webm'
             }\r\n\r\n`
@@ -116,9 +122,9 @@ export default async function handler(req, res) {
 
         if (groqRes.ok) {
           const groqData = await groqRes.json();
-          if (groqData.text) {
-            return res.status(200).json({ text: groqData.text.trim() });
-          }
+          let text = groqData.text ? groqData.text.trim() : '';
+          text = text.replace(/^["']|["']$/g, '').trim();
+          return res.status(200).json({ text });
         }
       } catch (groqErr) {
         console.warn('Groq Whisper Transcribe error:', groqErr.message);

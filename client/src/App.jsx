@@ -1495,6 +1495,15 @@ export default function App() {
               autoFocus
               aria-label="New task title"
             />
+            {/* Tombol AI / Mic di bar input task */}
+            <button
+              type="button"
+              onClick={handleTogglePartner}
+              title={isPartnerRecording ? 'Klik untuk selesai merekam' : 'Voice / AI Action'}
+              className={`btn-ai-voice ${isPartnerRecording ? 'is-recording' : ''}`}
+            >
+              {isPartnerRecording ? '🔴 Stop' : '✨ AI'}
+            </button>
             <button
               type="submit"
               className="btn-primary"
