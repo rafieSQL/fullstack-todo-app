@@ -10,6 +10,7 @@ import FocusSession from './components/FocusSession.jsx'
 import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
 import * as sfx from './utils/sfx.js'
+import { speakBack } from './utils/tts.js'
 import {
   startRecording,
   stopRecording,
@@ -923,8 +924,12 @@ export default function App() {
         setInterimVoiceText(`✓ ${replyMsg}`)
         showToast(`🤝 Partner: ${replyMsg}`)
         speakBack(replyMsg)
-      } else if (action === 'COMPLETE_TASK') {
-        const targetId = result.target_task_id
+      } else if (
+        action === 'COMPLETE_TASK' ||
+        action === 'complete' ||
+        action === 'toggle'
+      ) {
+        const targetId = result.target_task_id || result.targetId
         const targetTask = targetId
           ? tasks.find((t) => t.id === targetId)
           : result.title
@@ -935,6 +940,7 @@ export default function App() {
           await handleToggleTask({ ...targetTask, completed: false })
           const replyMsg =
             result.confirmation_reply ||
+            result.reply ||
             result.reply_summary ||
             `Siap bro, tugas "${targetTask.title}" udah ditandai selesai!`
           sfx.playSuccess()
@@ -942,13 +948,17 @@ export default function App() {
           showToast(`🤝 Partner: ${replyMsg}`)
           speakBack(replyMsg)
         } else {
-          const fallbackReply = result.confirmation_reply || result.reply_summary || 'Tugas yang dimaksud tidak ditemukan di daftar aktif.'
+          const fallbackReply =
+            result.confirmation_reply ||
+            result.reply ||
+            result.reply_summary ||
+            'Tugas yang dimaksud tidak ditemukan di daftar aktif.'
           setInterimVoiceText(`⚠️ ${fallbackReply}`)
           showToast(`🤝 Partner: ${fallbackReply}`, 'info')
           speakBack(fallbackReply)
         }
-      } else if (action === 'DELETE_TASK') {
-        const targetId = result.target_task_id
+      } else if (action === 'DELETE_TASK' || action === 'delete') {
+        const targetId = result.target_task_id || result.targetId
         const targetTask = targetId
           ? tasks.find((t) => t.id === targetId)
           : result.title
@@ -959,6 +969,7 @@ export default function App() {
           await handleDeleteTask(targetTask)
           const replyMsg =
             result.confirmation_reply ||
+            result.reply ||
             result.reply_summary ||
             `Siap bro, tugas "${targetTask.title}" berhasil dihapus.`
           sfx.playSuccess()
@@ -966,7 +977,11 @@ export default function App() {
           showToast(`🤝 Partner: ${replyMsg}`)
           speakBack(replyMsg)
         } else {
-          const fallbackReply = result.confirmation_reply || result.reply_summary || 'Tugas yang ingin dihapus tidak ditemukan.'
+          const fallbackReply =
+            result.confirmation_reply ||
+            result.reply ||
+            result.reply_summary ||
+            'Tugas yang ingin dihapus tidak ditemukan.'
           setInterimVoiceText(`⚠️ ${fallbackReply}`)
           showToast(`🤝 Partner: ${fallbackReply}`, 'info')
           speakBack(fallbackReply)
