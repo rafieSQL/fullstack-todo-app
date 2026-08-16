@@ -1,11 +1,8 @@
 /**
- * Partner Clean Audio Recorder & Resilient Voice Dispatcher
- * Zero legacy SpeechRecognition dependencies. Uses native MediaRecorder.
- * Sends base64 audio payload to Vercel Serverless / Backend API (/api/partner-voice),
- * with an automatic direct Client-Side Groq Fallback so it never fails.
+ * Partner Clean Audio Recorder & Direct Client-Side Groq AI Pipeline
+ * Captures raw microphone audio via MediaRecorder and transcribes / reasons directly via Groq API.
+ * Eliminates server network hops and fixes "Failed to fetch" on all hosting platforms.
  */
-
-import { parseCommandWithAI } from './aiService.js'
 
 let mediaStream = null
 let mediaRecorder = null
@@ -148,53 +145,43 @@ export function isRecording() {
 }
 
 /**
- * Convert audio Blob to Base64 string
+ * Send audio blob directly to Groq API (Whisper + Llama 3) from client side
  */
-export function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result
-      if (typeof result === 'string') {
-        const base64 = result.includes(',') ? result.split(',')[1] : result
-        resolve(base64)
-      } else {
-        reject(new Error('Failed to convert audio blob to base64.'))
-      }
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
-}
-
-/**
- * Direct Client-Side Groq Fallback (Whisper Audio Transcription + Llama 3 Intent)
- */
-async function fallbackClientSideGroq(audioBlob, currentTimeISO) {
-  const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
-  if (!apiKey) {
-    throw new Error('Groq API Key is not configured on client or server.')
+export async function sendAudioToPartnerVoice(
+  audioBlob,
+  currentTimeISO = new Date().toISOString()
+) {
+  if (!audioBlob || audioBlob.size === 0) {
+    throw new Error('Audio recording is empty.')
   }
 
-  console.warn('[Partner Voice] Using direct client-side Groq fallback pipeline...')
+  const GROQ_API_KEY = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
+  if (!GROQ_API_KEY) {
+    throw new Error(
+      'VITE_GROQ_API_KEY is missing. Please add VITE_GROQ_API_KEY to your environment variables.'
+    )
+  }
 
-  // Step 1: Client-Side Whisper Transcription
-  const whisperFormData = new FormData()
-  whisperFormData.append('file', audioBlob, 'voice_recording.webm')
-  whisperFormData.append('model', 'whisper-large-v3')
-  whisperFormData.append('response_format', 'json')
+  // ==========================================
+  // STEP A: Transcribe Audio via Groq Whisper API
+  // ==========================================
+  const formData = new FormData()
+  formData.append('file', audioBlob, 'voice.webm')
+  formData.append('model', 'whisper-large-v3')
+  formData.append('language', 'id')
+  formData.append('response_format', 'json')
 
   const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`
+      Authorization: `Bearer ${GROQ_API_KEY}`
     },
-    body: whisperFormData
+    body: formData
   })
 
   if (!whisperRes.ok) {
-    const errText = await whisperRes.text()
-    throw new Error(`Client-side Whisper transcription failed: ${errText}`)
+    const errData = await whisperRes.json().catch(() => ({}))
+    throw new Error(errData.error?.message || `Whisper Error: ${whisperRes.status}`)
   }
 
   const whisperData = await whisperRes.json()
@@ -211,59 +198,77 @@ async function fallbackClientSideGroq(audioBlob, currentTimeISO) {
     }
   }
 
-  // Step 2: Client-Side Llama 3 Reasoning
-  const aiResult = await parseCommandWithAI(transcript, currentTimeISO)
+  console.log('[Partner Voice] Transcribed:', transcript)
+
+  // ==========================================
+  // STEP B: Reason Intent via Groq Llama 3
+  // ==========================================
+  const systemPrompt = `You are an elite productivity AI assistant. Extract intent from user command in Indonesian or English.
+Reference local ISO time: ${currentTimeISO}.
+
+Return ONLY valid JSON matching this schema without markdown blocks:
+{
+  "action": "CREATE_TASK" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "title": "Clean concise title (omit command verbs like 'tambah', 'bikin', 'add')",
+  "start_time": "ISO-8601 string or null",
+  "end_time": "ISO-8601 string or null",
+  "priority": "High" | "Medium" | "Low",
+  "category": "General" | "Engineering" | "Design" | "Personal",
+  "target_view": "calendar" | "tasks" | "focus" | null,
+  "reply_summary": "Friendly Indonesian short confirmation (e.g. 'Tugas [judul] berhasil ditambahkan')"
+}`
+
+  const chatRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        { role: 'user', content: transcript }
+      ],
+      temperature: 0.1,
+      response_format: { type: 'json_object' }
+    })
+  })
+
+  if (!chatRes.ok) {
+    const errData = await chatRes.json().catch(() => ({}))
+    throw new Error(errData.error?.message || `Groq LLM Error: ${chatRes.status}`)
+  }
+
+  const chatData = await chatRes.json()
+  const rawContent = (chatData.choices?.[0]?.message?.content || '{}')
+    .replace(/```(?:json)?|```/g, '')
+    .trim()
+
+  let parsedResult
+  try {
+    parsedResult = JSON.parse(rawContent)
+  } catch {
+    const match = rawContent.match(/\{[\s\S]*\}/)
+    parsedResult = match ? JSON.parse(match[0]) : { action: 'UNKNOWN', reply_summary: rawContent }
+  }
+
+  console.log('[Partner Voice] Action result:', parsedResult)
+
   return {
     transcript,
-    result: aiResult
-  }
-}
-
-/**
- * Send audio blob to Vercel Serverless Function (/api/partner-voice)
- * with automatic direct Client-Side Groq Fallback
- */
-export async function sendAudioToPartnerVoice(
-  audioBlob,
-  currentTimeISO = new Date().toISOString()
-) {
-  if (!audioBlob || audioBlob.size === 0) {
-    throw new Error('Audio recording is empty.')
-  }
-
-  try {
-    const audioBase64 = await blobToBase64(audioBlob)
-
-    // Primary: Call Vercel Serverless / backend API endpoint
-    const response = await fetch('/api/partner-voice', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-current-time': currentTimeISO
-      },
-      body: JSON.stringify({
-        audioBase64,
-        mimeType: audioBlob.type || 'audio/webm',
-        currentTimeISO
-      })
-    })
-
-    if (response.ok) {
-      const data = await response.json()
-      return data
+    result: {
+      action: parsedResult.action || 'UNKNOWN',
+      title: (parsedResult.title || '').trim(),
+      start_time: parsedResult.start_time || null,
+      end_time: parsedResult.end_time || null,
+      priority: parsedResult.priority || 'Medium',
+      category: parsedResult.category || 'General',
+      target_view: parsedResult.target_view || null,
+      reply_summary: parsedResult.reply_summary || `Perintah diproses: "${transcript}"`
     }
-
-    console.warn(
-      `[Partner Voice] /api/partner-voice returned ${response.status}. Triggering client-side fallback...`
-    )
-  } catch (netError) {
-    console.warn(
-      '[Partner Voice] Network error reaching /api/partner-voice:',
-      netError.message,
-      'Triggering client-side fallback...'
-    )
   }
-
-  // Resilient Fallback: Run direct client-side Groq pipeline
-  return await fallbackClientSideGroq(audioBlob, currentTimeISO)
 }
