@@ -945,15 +945,35 @@ export default function App() {
         action === 'BULK_DELETE' ||
         (Array.isArray(result.target_task_ids) && result.target_task_ids.length > 0)
       ) {
-        const idsToDelete =
+        const idsToDelete = (
           Array.isArray(result.target_task_ids) && result.target_task_ids.length > 0
             ? result.target_task_ids
             : result.title
             ? tasks.filter((t) => t.title.toLowerCase().includes(result.title.toLowerCase())).map((t) => t.id)
             : []
+        ).map(String)
 
         if (idsToDelete.length > 0) {
-          await Promise.all(idsToDelete.map((id) => handleDeleteTask(id)))
+          // 1. LANGSUNG HAPUS DARI TAMPILAN (UI Instant / 0 Detik Optimistic Update)
+          setTasks((prev) =>
+            prev.filter((task) => !idsToDelete.includes(String(task.id || task._id)))
+          )
+          setSelectedTaskIds((prev) =>
+            prev.filter((id) => !idsToDelete.includes(String(id)))
+          )
+
+          // 2. HAPUS DI DATABASE SECARA PARALEL (Sekaligus)
+          const deletePromises = idsToDelete.map(async (id) => {
+            const taskObj = tasks.find((t) => String(t.id || t._id) === id)
+            return api.deleteTask(id, taskObj?.title || 'task', session?.user?.id).catch((err) =>
+              console.error(`Gagal menghapus task ${id}:`, err)
+            )
+          })
+
+          Promise.all(deletePromises).then(() => {
+            loadActivities()
+          })
+
           const reply = replyMsg || `Siap bro, ${idsToDelete.length} tugas berhasil dihapus sekaligus.`
           sfx.playSuccess()
           setInterimVoiceText(`✓ ${reply}`)
