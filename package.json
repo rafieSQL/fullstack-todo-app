@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "npm run build --prefix client",
     "dev": "npm run dev:all",
     "dev:all": "node scripts/start-dev.js",
     "client": "npm run dev --prefix client",
