@@ -737,14 +737,19 @@
 }
 
 .chronos-event-card.is-completed {
-  opacity: 0.6;
+  opacity: 0.65;
+  cursor: default;
   background: rgba(16, 185, 129, 0.06) !important;
   border: 1px solid rgba(16, 185, 129, 0.2) !important;
   border-left: 3px solid #10b981 !important;
+  user-select: none;
 }
 
 .chronos-event-card.is-completed:hover {
-  opacity: 0.95;
+  transform: none;
+  opacity: 0.85;
+  filter: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .chronos-event-card.is-completed .event-card-title {

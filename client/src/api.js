@@ -603,30 +603,95 @@ export async function createCalendarEvent({
 }
 
 /**
+ * Sanitize calendar payload to ensure ONLY valid PostgreSQL columns are sent
+ */
+export function sanitizeCalendarPayload(rawUpdates = {}) {
+  const sanitized = {}
+  if (rawUpdates.title !== undefined) {
+    sanitized.title = sanitizeText(rawUpdates.title, 250)
+  }
+  if (rawUpdates.start_time !== undefined) {
+    sanitized.start_time = new Date(rawUpdates.start_time).toISOString()
+  }
+  if (rawUpdates.end_time !== undefined) {
+    sanitized.end_time = new Date(rawUpdates.end_time).toISOString()
+  }
+  if (rawUpdates.task_id !== undefined) {
+    sanitized.task_id = isValidUuid(rawUpdates.task_id) ? rawUpdates.task_id : null
+  }
+  if (rawUpdates.category !== undefined) {
+    sanitized.category = ['General', 'Engineering', 'Design', 'Personal'].includes(rawUpdates.category)
+      ? rawUpdates.category
+      : 'General'
+  }
+  if (rawUpdates.priority !== undefined) {
+    sanitized.priority = ['low', 'medium', 'high'].includes(rawUpdates.priority)
+      ? rawUpdates.priority
+      : 'medium'
+  }
+  if (rawUpdates.auto_morph !== undefined) {
+    sanitized.auto_morph = Boolean(rawUpdates.auto_morph)
+  }
+  if (rawUpdates.is_completed !== undefined) {
+    sanitized.is_completed = Boolean(rawUpdates.is_completed)
+  }
+  if (rawUpdates.user_id !== undefined && isValidUuid(rawUpdates.user_id)) {
+    sanitized.user_id = rawUpdates.user_id
+  }
+  sanitized.updated_at = new Date().toISOString()
+  return sanitized
+}
+
+/**
  * Update an existing calendar event (e.g. reschedule, auto-morph shift, complete)
+ * with strict column sanitization and upsert fallback.
  */
 export async function updateCalendarEvent(id, updates = {}) {
   if (!id) throw new ApiError('Event ID is required for update.', 400)
 
-  if (!isSupabaseConfigured || id.startsWith('cal-') || id.startsWith('temp-')) {
+  const payload = sanitizeCalendarPayload(updates)
+
+  // In-memory mock fallback if Supabase not configured
+  if (!isSupabaseConfigured) {
     const idx = mockCalendarEvents.findIndex((e) => e.id === id)
     if (idx !== -1) {
       mockCalendarEvents[idx] = {
         ...mockCalendarEvents[idx],
-        ...updates,
-        updated_at: new Date().toISOString()
+        ...payload
       }
       return mockCalendarEvents[idx]
     }
-    return { id, ...updates, updated_at: new Date().toISOString() }
+    const fallbackItem = { id, ...payload }
+    mockCalendarEvents.push(fallbackItem)
+    return fallbackItem
+  }
+
+  // Handle temporary or non-UUID IDs by creating or upserting to Supabase
+  if (!isValidUuid(id)) {
+    try {
+      let activeUserId = payload.user_id
+      if (!activeUserId) {
+        const { data: sess } = await supabase.auth.getSession()
+        activeUserId = sess?.session?.user?.id
+      }
+      return await createCalendarEvent({
+        title: payload.title || updates.title || 'Scheduled Task',
+        startTime: payload.start_time || updates.start_time,
+        endTime: payload.end_time || updates.end_time,
+        taskId: payload.task_id || updates.task_id,
+        category: payload.category || updates.category,
+        priority: payload.priority || updates.priority,
+        autoMorph: payload.auto_morph !== undefined ? payload.auto_morph : updates.auto_morph,
+        isCompleted: payload.is_completed !== undefined ? payload.is_completed : updates.is_completed,
+        userId: activeUserId
+      })
+    } catch (createErr) {
+      console.error('Failed to convert temporary event to database record:', createErr)
+      throw createErr
+    }
   }
 
   try {
-    const payload = { ...updates, updated_at: new Date().toISOString() }
-    if (payload.task_id && !isValidUuid(payload.task_id)) {
-      payload.task_id = null
-    }
-
     const { data, error } = await supabase
       .from('calendar_events')
       .update(payload)
@@ -635,6 +700,24 @@ export async function updateCalendarEvent(id, updates = {}) {
       .single()
 
     if (error) {
+      // If row does not exist in DB, attempt upsert fallback
+      if (error.code === 'PGRST116' || error.message?.includes('0 rows')) {
+        let activeUserId = payload.user_id
+        if (!activeUserId) {
+          const { data: sess } = await supabase.auth.getSession()
+          activeUserId = sess?.session?.user?.id
+        }
+        if (activeUserId) payload.user_id = activeUserId
+
+        const { data: upsertData, error: upsertErr } = await supabase
+          .from('calendar_events')
+          .upsert([{ id, ...payload }])
+          .select('*')
+          .single()
+
+        if (!upsertErr && upsertData) return upsertData
+      }
+
       console.error('Supabase calendar update error:', error.message)
       throw new ApiError(error.message, 400, error)
     }
@@ -642,7 +725,7 @@ export async function updateCalendarEvent(id, updates = {}) {
   } catch (err) {
     if (err instanceof ApiError) throw err
     console.error('Calendar update failed:', err)
-    return { id, ...updates }
+    throw new ApiError(err.message || 'Failed to update calendar event', 500, err)
   }
 }
 
