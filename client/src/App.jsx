@@ -15,6 +15,7 @@ import {
   stopListening,
   isSpeechRecognitionSupported
 } from './utils/voiceCommandEngine.js'
+import { parseCommandWithAI } from './utils/aiService.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -821,82 +822,75 @@ export default function App() {
         onInterimResult: (text) => {
           setInterimVoiceText(text)
         },
-        onFinalCommand: async (intent, transcript) => {
-          if (intent.type === 'ADD_TASK') {
-            setInterimVoiceText(`⚡ Executing: "${intent.title}"...`)
-            try {
+        onFinalCommand: async (localIntent, transcript) => {
+          setInterimVoiceText('🤝 Partner is thinking...')
+
+          try {
+            // Parse user command using Groq Llama 3 (with automatic resilient local fallback)
+            const aiResult = await parseCommandWithAI(transcript, new Date().toISOString())
+            const action = aiResult.action
+
+            if (action === 'CREATE_TASK') {
+              setInterimVoiceText(`⚡ Executing: "${aiResult.title}"...`)
               await handleCreateTask({
-                title: intent.title,
-                priority: intent.priority || 'medium',
-                category: intent.category || 'General'
+                title: aiResult.title,
+                priority: (aiResult.priority || 'Medium').toLowerCase(),
+                category: aiResult.category || 'General'
               })
               sfx.playSuccess()
-              setInterimVoiceText(`✓ Created: "${intent.title}"`)
-              showToast(`🤝 Partner: Task "${intent.title}" created.`)
-            } catch (err) {
-              showToast(`🤝 Partner error: ${err.message}`, 'error')
-            }
-            setTimeout(() => {
-              setInterimVoiceText('')
-            }, 2500)
-          } else if (intent.type === 'SCHEDULE_TASK') {
-            setInterimVoiceText(`⚡ Scheduling: "${intent.title}"...`)
-            try {
+              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
+              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
+            } else if (action === 'SCHEDULE_EVENT') {
+              setInterimVoiceText(`⚡ Scheduling: "${aiResult.title}"...`)
+              const startTime = aiResult.start_time || new Date().toISOString()
+              const endTime =
+                aiResult.end_time ||
+                new Date(new Date(startTime).getTime() + 3600000).toISOString()
+
               await api.createCalendarEvent({
-                title: intent.title,
-                startTime: intent.startTime,
-                endTime: intent.endTime,
-                category: intent.category || 'General',
-                priority: intent.priority || 'medium',
+                title: aiResult.title,
+                startTime,
+                endTime,
+                category: aiResult.category || 'General',
+                priority: (aiResult.priority || 'Medium').toLowerCase(),
                 autoMorph: true,
                 isCompleted: false,
                 userId: session?.user?.id
               })
               sfx.playSuccess()
               setMainTab('calendar')
-              setInterimVoiceText(`✓ Scheduled: "${intent.title}"`)
-              showToast(`🤝 Partner: Scheduled "${intent.title}".`)
-            } catch (err) {
-              showToast(`🤝 Partner schedule error: ${err.message}`, 'error')
-            }
-            setTimeout(() => {
-              setInterimVoiceText('')
-            }, 2500)
-          } else if (intent.type === 'NAVIGATE') {
-            sfx.playSuccess()
-            if (intent.view === 'focus') {
-              handleOpenFocusSession()
-              setInterimVoiceText('✓ Opened Focus Mode')
-              showToast('🤝 Partner: Opened Zen Focus mode.')
-            } else {
-              setMainTab(intent.view)
-              setInterimVoiceText(`✓ Switched to ${intent.view === 'calendar' ? 'Calendar' : 'Tasks'}`)
-              showToast(
-                `🤝 Partner: Switched to ${intent.view === 'calendar' ? 'Chronos Calendar' : 'Tasks Registry'}.`
-              )
-            }
-            setTimeout(() => {
-              setInterimVoiceText('')
-            }, 2500)
-          } else if (intent.type === 'CLEAR_COMPLETED') {
-            setInterimVoiceText('⚡ Purging completed tasks...')
-            try {
+              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
+              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
+            } else if (action === 'NAVIGATE') {
+              sfx.playSuccess()
+              const targetView = aiResult.target_view || 'tasks'
+              if (targetView === 'focus') {
+                handleOpenFocusSession()
+              } else {
+                setMainTab(targetView)
+              }
+              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
+              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
+            } else if (action === 'CLEAR_COMPLETED') {
+              setInterimVoiceText('⚡ Purging completed tasks...')
               await handleClearCompleted()
               sfx.playSuccess()
-              setInterimVoiceText('✓ Cleared completed tasks')
-              showToast('🤝 Partner: Cleared completed tasks.')
-            } catch (err) {
-              showToast(`🤝 Partner error: ${err.message}`, 'error')
+              setInterimVoiceText(`✓ ${aiResult.reply_summary}`)
+              showToast(`🤝 Partner: ${aiResult.reply_summary}`)
+            } else {
+              setInterimVoiceText(`"${transcript}"`)
+              showToast(
+                `🤝 Partner: ${
+                  aiResult.reply_summary || `Tidak dapat mengenali perintah ("${transcript}")`
+                }`,
+                'info'
+              )
             }
-            setTimeout(() => {
-              setInterimVoiceText('')
-            }, 2500)
-          } else {
-            setInterimVoiceText(`"${transcript}"`)
-            showToast(
-              `🤝 Partner: Didn't catch that ("${transcript}"). Try "Tambah tugas [nama]".`,
-              'info'
-            )
+          } catch (err) {
+            console.error('Partner AI command error:', err)
+            showToast(`Partner error: ${err.message}`, 'error')
+            setInterimVoiceText(`Error: ${err.message}`)
+          } finally {
             setTimeout(() => {
               setInterimVoiceText('')
             }, 3000)
