@@ -1,5 +1,3 @@
-import { Buffer } from 'node:buffer';
-
 export const config = {
   api: {
     bodyParser: {
@@ -9,7 +7,7 @@ export const config = {
 };
 
 export default async function handler(req, res) {
-  // Handle CORS preflight
+  // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -28,51 +26,100 @@ export default async function handler(req, res) {
       try {
         body = JSON.parse(body);
       } catch {
-        // Keep original if parsing fails
+        // keep original
       }
     }
-    const { audioBase64, mimeType } = body || {};
+
+    const { audioBase64, mimeType = 'audio/webm' } = body || {};
 
     if (!audioBase64) {
-      return res.status(400).json({ error: 'audioBase64 is required' });
+      return res.status(400).json({ error: 'Audio data is required' });
     }
 
-    const apiKey = process.env.VITE_GROQ_API_KEY || process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Groq API Key is not configured on server' });
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
+
+    // 1. Primary: Google Gemini Audio Understanding API (gemini-2.0-flash)
+    if (geminiKey) {
+      try {
+        const cleanMime = (mimeType || 'audio/webm').split(';')[0];
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey.trim()}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: cleanMime,
+                        data: audioBase64
+                      }
+                    },
+                    {
+                      text: 'Transkripsikan audio ini ke dalam teks bahasa Indonesia secara akurat dan persis seperti yang diucapkan. Hanya kembalikan teks hasil transkripsinya saja tanpa penjelasan tambahan atau tanda kutip.'
+                    }
+                  ]
+                }
+              ]
+            })
+          }
+        );
+
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json();
+          const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+          if (text) {
+            return res.status(200).json({ text });
+          }
+        }
+      } catch (geminiErr) {
+        console.warn('Gemini Audio Transcribe error, attempting Groq fallback:', geminiErr.message);
+      }
     }
 
-    const buffer = Buffer.from(audioBase64, 'base64');
-    const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+    // 2. Fallback: Groq Whisper API (whisper-large-v3)
+    if (groqKey) {
+      try {
+        const buffer = Buffer.from(audioBase64, 'base64');
+        const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+        const ext = mimeType?.includes('mp4') ? 'mp4' : mimeType?.includes('ogg') ? 'ogg' : 'webm';
 
-    const ext = mimeType?.includes('mp4') ? 'mp4' : mimeType?.includes('ogg') ? 'ogg' : 'webm';
-    
-    // Construct multipart form-data payload in pure buffer
-    const pre = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-large-v3\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\nid\r\n` +
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${mimeType || 'audio/webm'}\r\n\r\n`
-    );
-    const post = Buffer.from(`\r\n--${boundary}--\r\n`);
-    const fullBody = Buffer.concat([pre, buffer, post]);
+        const pre = Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-large-v3\r\n` +
+            `--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\nid\r\n` +
+            `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.${ext}"\r\nContent-Type: ${
+              mimeType || 'audio/webm'
+            }\r\n\r\n`
+        );
+        const post = Buffer.from(`\r\n--${boundary}--\r\n`);
+        const fullBody = Buffer.concat([pre, buffer, post]);
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`,
-        'Content-Type': `multipart/form-data; boundary=${boundary}`
-      },
-      body: fullBody
-    });
+        const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${groqKey.trim()}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`
+          },
+          body: fullBody
+        });
 
-    if (!groqRes.ok) {
-      const errText = await groqRes.text();
-      return res.status(groqRes.status).json({ error: `Groq Whisper Error: ${errText}` });
+        if (groqRes.ok) {
+          const groqData = await groqRes.json();
+          const text = (groqData.text || '').trim();
+          return res.status(200).json({ text });
+        }
+      } catch (groqErr) {
+        console.warn('Groq Whisper fallback error:', groqErr.message);
+      }
     }
 
-    const groqData = await groqRes.json();
-    return res.status(200).json({ text: groqData.text });
+    return res.status(500).json({ error: 'Gagal memproses transkripsi suara.' });
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Internal transcription error' });
+    console.error('Transcribe API Error:', error);
+    return res.status(500).json({ error: 'Gagal memproses transkripsi suara.' });
   }
 }
