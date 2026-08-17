@@ -121,7 +121,19 @@ export async function startRecording() {
   cancelRecording()
 
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      })
+    } catch {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    }
+
     audioChunks = []
 
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -220,7 +232,13 @@ export function stopRecording() {
 export function cancelRecording() {
   if (mediaStream) {
     try {
-      mediaStream.getTracks().forEach((track) => track.stop())
+      mediaStream.getTracks().forEach((track) => {
+        try {
+          track.stop()
+        } catch {
+          // ignore
+        }
+      })
     } catch {
       // ignore
     }
