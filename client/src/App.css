@@ -99,6 +99,27 @@
   gap: 8px;
 }
 
+.btn-back-landing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-back-landing:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-dark);
+}
+
 /* User Session Badge in Header */
 .user-session-group {
   display: flex;

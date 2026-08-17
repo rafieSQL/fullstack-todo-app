@@ -9,6 +9,7 @@ import AmbientAura from './components/AmbientAura.jsx'
 import FocusSession from './components/FocusSession.jsx'
 import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
 import ChronosCalendar from './components/ChronosCalendar.jsx'
+import LandingPage from './components/LandingPage.jsx'
 import * as sfx from './utils/sfx.js'
 import {
   startRecording,
@@ -157,6 +158,10 @@ export default function App() {
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newPriority, setNewPriority] = useState('medium')
   const [newCategory, setNewCategory] = useState('General')
+
+  // View routing & Navigation state
+  const [currentView, setCurrentView] = useState('landing') // 'landing' | 'app'
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
 
   // Navigation state (Tasks vs Chronos Calendar)
   const [mainTab, setMainTab] = useState('tasks') // 'tasks' | 'calendar'
@@ -354,6 +359,7 @@ export default function App() {
       }
       setSession(null)
       setIsDemoMode(false)
+      setCurrentView('landing')
       showToast('Signed out of session')
     } catch (err) {
       console.error('Sign out error:', err)
@@ -1321,7 +1327,71 @@ export default function App() {
     )
   }
 
-  // Render Auth screen if unauthenticated and not in demo mode
+  // Render Landing Page if current view is landing
+  if (currentView === 'landing') {
+    return (
+      <div className="landing-view-container">
+        {/* Toast Notification Container */}
+        <div className="toast-container" aria-live="polite">
+          {toasts.map((toast) => (
+            <div key={toast.id} className={`toast ${toast.type === 'error' ? 'toast-error' : ''}`}>
+              <span>{toast.message}</span>
+              <button
+                type="button"
+                className="toast-close-btn"
+                onClick={() => removeToast(toast.id)}
+                aria-label="Dismiss notification"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <LandingPage
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onEnterApp={() => {
+            setIsDemoMode(true)
+            setCurrentView('app')
+          }}
+          session={session}
+          displayName={displayName}
+        />
+
+        {/* Auth Modal Overlay when opened from Landing Page */}
+        {isAuthModalOpen && (
+          <div
+            className="auth-modal-overlay"
+            onClick={() => setIsAuthModalOpen(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 9999,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px'
+            }}
+          >
+            <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '440px' }}>
+              <Auth
+                onDemoAccess={() => {
+                  setIsDemoMode(true)
+                  setIsAuthModalOpen(false)
+                  setCurrentView('app')
+                }}
+                onClose={() => setIsAuthModalOpen(false)}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Render Auth screen if in app view but unauthenticated and not in demo mode
   if (!session && !isDemoMode) {
     return (
       <div className="app-container">
@@ -1341,7 +1411,10 @@ export default function App() {
           ))}
         </div>
 
-        <Auth onDemoAccess={() => setIsDemoMode(true)} />
+        <Auth
+          onDemoAccess={() => setIsDemoMode(true)}
+          onClose={() => setCurrentView('landing')}
+        />
       </div>
     )
   }
@@ -1504,6 +1577,7 @@ export default function App() {
         isPartnerActive={isPartnerRecording}
         isPartnerProcessing={isPartnerProcessing}
         onTogglePartner={handleTogglePartner}
+        onNavigateLanding={() => setCurrentView('landing')}
       />
 
       {/* Error / Notice Banner */}

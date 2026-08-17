@@ -12,7 +12,8 @@ export default function Header({
   loadTasks,
   isPartnerActive = false,
   isPartnerProcessing = false,
-  onTogglePartner = () => {}
+  onTogglePartner = () => {},
+  onNavigateLanding = () => {}
 }) {
   return (
     <header className="app-header">
@@ -50,6 +51,15 @@ export default function Header({
       </div>
 
       <div className="header-actions">
+        {/* Back to Landing Page Button */}
+        <button
+          type="button"
+          onClick={onNavigateLanding}
+          className="btn-back-landing"
+          title="Kembali ke Landing Page"
+        >
+          ← Landing Page
+        </button>
         {/* Partner Voice Agent Toggle */}
         <button
           type="button"

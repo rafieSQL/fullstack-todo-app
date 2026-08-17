@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { supabase, isSupabaseConfigured } from '../supabaseClient.js'
 import { sanitizeEmail, sanitizeUsername } from '../utils/sanitize.js'
 
-export default function Auth({ onDemoAccess }) {
+export default function Auth({ onDemoAccess, onClose }) {
   const [authMode, setAuthMode] = useState('sign_in') // 'sign_in' | 'sign_up' | 'magic_link'
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
@@ -101,7 +101,29 @@ export default function Auth({ onDemoAccess }) {
 
   return (
     <div className="auth-wrapper">
-      <div className="auth-card">
+      <div className="auth-card" style={{ position: 'relative' }}>
+        {onClose && (
+          <button
+            type="button"
+            className="auth-modal-close-btn"
+            onClick={onClose}
+            aria-label="Tutup Auth Modal"
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#a1a1aa',
+              fontSize: '16px',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              borderRadius: '4px'
+            }}
+          >
+            ✕
+          </button>
+        )}
         <header className="auth-header">
           <div className="auth-badge">SYSTEM ACCESS</div>
           <h2>Task Registry</h2>
