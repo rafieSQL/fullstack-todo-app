@@ -1,7 +1,10 @@
-Set-Content -Path .gitignore -Value @"
 node_modules
 .env
+.env*.local
+*.env
 dist
+dist-ssr
 .DS_Store
 *.log
-"@
+.tmp/
+.tmp
