@@ -328,52 +328,7 @@ export default function App() {
     [tasks, startSession]
   )
 
-  // Global Keyboard shortcuts (/ for search, F for focus session, Esc to dismiss)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (viewMode === 'fullscreen') return // Let FocusSession handle its own keyboard events
 
-      const isInputActive =
-        document.activeElement === taskInputRef.current ||
-        document.activeElement === searchInputRef.current ||
-        document.activeElement === editInputRef.current ||
-        document.activeElement?.tagName === 'INPUT' ||
-        document.activeElement?.tagName === 'TEXTAREA'
-
-      if (isInputActive) {
-        if (e.key === 'Escape') {
-          if (editingTaskId) {
-            setEditingTaskId(null)
-          } else if (document.activeElement === searchInputRef.current) {
-            setSearchQuery('')
-            searchInputRef.current?.blur()
-          }
-        }
-        return
-      }
-
-      if (e.key === '/') {
-        e.preventDefault()
-        searchInputRef.current?.focus()
-      } else if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault()
-        handleOpenFocusSession()
-      } else if (e.key === 'c' || e.key === 'C') {
-        if (!e.metaKey && !e.ctrlKey) {
-          e.preventDefault()
-          setMainTab('calendar')
-        }
-      } else if (e.key === 't' || e.key === 'T') {
-        if (!e.metaKey && !e.ctrlKey) {
-          e.preventDefault()
-          setMainTab('tasks')
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [editingTaskId, viewMode, handleOpenFocusSession])
 
   // Sign out handler
   const handleSignOut = useCallback(async () => {
@@ -1232,6 +1187,67 @@ export default function App() {
     executePartnerAction,
     showToast
   ])
+
+  // Global Keyboard shortcuts (/ for search, F for focus, V for Voice Partner, Esc to dismiss)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isInputActive =
+        document.activeElement === taskInputRef.current ||
+        document.activeElement === searchInputRef.current ||
+        document.activeElement === editInputRef.current ||
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA' ||
+        document.activeElement?.tagName === 'SELECT' ||
+        document.activeElement?.isContentEditable
+
+      if (isInputActive) {
+        if (e.key === 'Escape') {
+          if (editingTaskId) {
+            setEditingTaskId(null)
+          } else if (document.activeElement === searchInputRef.current) {
+            setSearchQuery('')
+            searchInputRef.current?.blur()
+          } else {
+            document.activeElement?.blur()
+          }
+        }
+        return
+      }
+
+      // Voice Partner shortcut (V) works globally in both normal & focus mode
+      if (e.key === 'v' || e.key === 'V') {
+        if (!e.metaKey && !e.ctrlKey) {
+          e.preventDefault()
+          handleTogglePartner()
+          return
+        }
+      }
+
+      // Non-fullscreen shortcuts
+      if (viewMode !== 'fullscreen') {
+        if (e.key === '/') {
+          e.preventDefault()
+          searchInputRef.current?.focus()
+        } else if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault()
+          handleOpenFocusSession()
+        } else if (e.key === 'c' || e.key === 'C') {
+          if (!e.metaKey && !e.ctrlKey) {
+            e.preventDefault()
+            setMainTab('calendar')
+          }
+        } else if (e.key === 't' || e.key === 'T') {
+          if (!e.metaKey && !e.ctrlKey) {
+            e.preventDefault()
+            setMainTab('tasks')
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [editingTaskId, viewMode, handleOpenFocusSession, handleTogglePartner])
 
   // If waiting for auth check
   if (!authInitialized) {

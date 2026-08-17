@@ -29,6 +29,8 @@ export async function transcribeAudioWithWhisper(audioBlob) {
     throw new Error('Suara tidak terdengar jelas, silakan coba lagi.')
   }
 
+  console.log('Audio Blob Size:', audioBlob.size, 'bytes', 'Type:', audioBlob.type)
+
   const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
   const mimeType = audioBlob.type || 'audio/webm'
   const file = new File([audioBlob], 'audio.webm', { type: mimeType || 'audio/webm' })
@@ -176,47 +178,52 @@ export function stopRecording() {
       return
     }
 
+    const recorder = mediaRecorder
+    const stream = mediaStream
+
+    recorder.onstop = () => {
+      const mimeType = recorder ? recorder.mimeType : 'audio/webm'
+      const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' })
+      audioChunks = []
+
+      // Matikan hardware tracks SETELAH blob terkumpul sempurna
+      if (stream) {
+        try {
+          stream.getTracks().forEach((t) => {
+            try {
+              t.stop()
+            } catch {
+              // ignore
+            }
+          })
+        } catch {
+          // ignore
+        }
+      }
+      mediaStream = null
+      mediaRecorder = null
+
+      if (!audioBlob || audioBlob.size === 0) {
+        reject(new Error('Audio recording is empty'))
+        return
+      }
+
+      resolve(audioBlob)
+    }
+
+    recorder.onerror = (event) => {
+      cancelRecording()
+      reject(event.error || new Error('Terjadi kesalahan saat merekam suara.'))
+    }
+
     const elapsed = Date.now() - recordingStartTime
     const minDelay = Math.max(0, 300 - elapsed)
 
     setTimeout(() => {
-      if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-        cancelRecording()
-        reject(new Error('Tidak ada rekaman suara aktif.'))
-        return
-      }
-
-      mediaRecorder.onstop = () => {
-        if (mediaStream) {
-          try {
-            mediaStream.getTracks().forEach((track) => track.stop())
-          } catch {
-            // ignore
-          }
-          mediaStream = null
-        }
-
-        const mimeType = mediaRecorder ? mediaRecorder.mimeType : 'audio/webm'
-        const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' })
-        audioChunks = []
-
-        if (!audioBlob || audioBlob.size === 0) {
-          reject(new Error('Suara tidak terdengar jelas, silakan coba lagi.'))
-          return
-        }
-
-        resolve(audioBlob)
-      }
-
-      mediaRecorder.onerror = (event) => {
-        cancelRecording()
-        reject(event.error || new Error('Terjadi kesalahan saat merekam suara.'))
-      }
-
       try {
-        if (mediaRecorder.state !== 'inactive') {
-          mediaRecorder.requestData()
-          mediaRecorder.stop()
+        if (recorder.state !== 'inactive') {
+          recorder.requestData()
+          recorder.stop()
         }
       } catch {
         cancelRecording()

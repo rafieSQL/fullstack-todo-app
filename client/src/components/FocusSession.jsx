@@ -161,17 +161,12 @@ export default function FocusSession({
       } else if (e.key === 'Escape') {
         e.preventDefault()
         minimizeSession()
-      } else if (e.key === 'v' || e.key === 'V') {
-        if (!e.metaKey && !e.ctrlKey) {
-          e.preventDefault()
-          onTogglePartner()
-        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePlay, resetTimer, minimizeSession, onTogglePartner])
+  }, [togglePlay, resetTimer, minimizeSession])
 
   return (
     <div className="focus-overlay" role="dialog" aria-label="Zen Pomodoro Focus Session" aria-modal="true">

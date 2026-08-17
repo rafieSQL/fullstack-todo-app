@@ -1,5 +1,3 @@
-import { useEffect } from 'react'
-
 export default function Header({
   metrics,
   mainTab,
@@ -16,28 +14,6 @@ export default function Header({
   isPartnerProcessing = false,
   onTogglePartner = () => {}
 }) {
-  // Keyboard Shortcut 'V' for Partner Voice Toggle (when not inside inputs)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (
-        e.target.tagName === 'INPUT' ||
-        e.target.tagName === 'TEXTAREA' ||
-        e.target.tagName === 'SELECT' ||
-        e.target.isContentEditable
-      ) {
-        return
-      }
-
-      if (e.key === 'v' || e.key === 'V') {
-        e.preventDefault()
-        onTogglePartner()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onTogglePartner])
-
   return (
     <header className="app-header">
       <div className="header-title-group">
