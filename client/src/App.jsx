@@ -1622,61 +1622,65 @@ export default function App() {
         </form>
       </section>
 
-      {/* Horizontal Category Workspace Bar */}
-      <section className="category-filter-bar" aria-label="Filter by Category">
-        <span className="cat-filter-label">Workspaces:</span>
-        <button
-          type="button"
-          className={`cat-filter-chip ${categoryFilter === 'all' ? 'active' : ''}`}
-          onClick={() => setCategoryFilter('all')}
-        >
-          ALL ({categoryCounts.all || 0})
-        </button>
-        {CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            type="button"
-            className={`cat-filter-chip ${categoryFilter === cat ? 'active' : ''}`}
-            onClick={() => setCategoryFilter(cat)}
-          >
-            {CATEGORY_ABBR[cat]} ({categoryCounts[cat] || 0})
-          </button>
-        ))}
-      </section>
+      {/* Consolidated Toolbar: Workspaces, Status Tabs, Search, Priority, and Sort */}
+      <section className="unified-toolbar" aria-label="Task Filters and Navigation">
+        <div className="toolbar-top-row">
+          {/* Workspaces Filter Chips */}
+          <div className="workspace-tabs-group" role="tablist" aria-label="Filter by Workspace">
+            <span className="cat-filter-label">Workspaces:</span>
+            <button
+              type="button"
+              className={`cat-filter-chip ${categoryFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setCategoryFilter('all')}
+            >
+              ALL ({categoryCounts.all || 0})
+            </button>
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`cat-filter-chip ${categoryFilter === cat ? 'active' : ''}`}
+                onClick={() => setCategoryFilter(cat)}
+              >
+                {CATEGORY_ABBR[cat]} ({categoryCounts[cat] || 0})
+              </button>
+            ))}
+          </div>
 
-      {/* Primary Tabs & Search Toolbar */}
-      <section className="toolbar" aria-label="Task Filters">
-        <div className="tabs-group" role="tablist">
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
-            onClick={() => setActiveTab('all')}
-            role="tab"
-            aria-selected={activeTab === 'all'}
-          >
-            All <span className="tab-count">{metrics.total}</span>
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'active' ? 'active' : ''}`}
-            onClick={() => setActiveTab('active')}
-            role="tab"
-            aria-selected={activeTab === 'active'}
-          >
-            Active <span className="tab-count">{metrics.pending}</span>
-          </button>
-          <button
-            type="button"
-            className={`tab-btn ${activeTab === 'completed' ? 'active' : ''}`}
-            onClick={() => setActiveTab('completed')}
-            role="tab"
-            aria-selected={activeTab === 'completed'}
-          >
-            Completed <span className="tab-count">{metrics.completed}</span>
-          </button>
+          {/* Status Tabs */}
+          <div className="tabs-group" role="tablist" aria-label="Filter by Status">
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+              onClick={() => setActiveTab('all')}
+              role="tab"
+              aria-selected={activeTab === 'all'}
+            >
+              All <span className="tab-count">{metrics.total}</span>
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'active' ? 'active' : ''}`}
+              onClick={() => setActiveTab('active')}
+              role="tab"
+              aria-selected={activeTab === 'active'}
+            >
+              Active <span className="tab-count">{metrics.pending}</span>
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'completed' ? 'active' : ''}`}
+              onClick={() => setActiveTab('completed')}
+              role="tab"
+              aria-selected={activeTab === 'completed'}
+            >
+              Completed <span className="tab-count">{metrics.completed}</span>
+            </button>
+          </div>
         </div>
 
-        <div className="search-and-filters">
+        <div className="toolbar-bottom-row">
+          {/* Search bar */}
           <div className="search-input-wrapper">
             <input
               ref={searchInputRef}
@@ -1699,39 +1703,38 @@ export default function App() {
               </button>
             )}
           </div>
-        </div>
-      </section>
 
-      {/* Secondary Filter Bar: Priority Chips & Sorting */}
-      <section className="filter-controls-bar" aria-label="Priority Filter and Sorting">
-        <div className="priority-chips-group">
-          <span className="sort-label">Priority:</span>
-          {['all', 'high', 'medium', 'low'].map((p) => (
-            <button
-              key={p}
-              type="button"
-              className={`priority-chip ${priorityFilter === p ? 'active' : ''}`}
-              onClick={() => setPriorityFilter(p)}
+          {/* Priority Filter Chips */}
+          <div className="priority-chips-group">
+            <span className="sort-label">Priority:</span>
+            {['all', 'high', 'medium', 'low'].map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={`priority-chip ${priorityFilter === p ? 'active' : ''}`}
+                onClick={() => setPriorityFilter(p)}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="sort-group">
+            <label htmlFor="sort-select" className="sort-label">Sort:</label>
+            <select
+              id="sort-select"
+              className="sort-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
             >
-              {p.charAt(0).toUpperCase() + p.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className="sort-group">
-          <label htmlFor="sort-select" className="sort-label">Sort:</label>
-          <select
-            id="sort-select"
-            className="sort-select"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="custom">Custom Order (Drag & Drop)</option>
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="priority">Priority (High to Low)</option>
-            <option value="alphabetical">Title (A-Z)</option>
-          </select>
+              <option value="custom">Custom Order (Drag & Drop)</option>
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="priority">Priority (High to Low)</option>
+              <option value="alphabetical">Title (A-Z)</option>
+            </select>
+          </div>
         </div>
       </section>
 

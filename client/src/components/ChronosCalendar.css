@@ -29,9 +29,10 @@
   justify-content: space-between;
   padding: 10px 18px;
   background-color: #121316;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  gap: 16px;
-  flex-wrap: wrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 12px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   z-index: 20;
 }
 
@@ -39,6 +40,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .chronos-btn-today {
