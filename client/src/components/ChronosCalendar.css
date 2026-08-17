@@ -1,6 +1,6 @@
 /* ==========================================================================
-   Chronos Calendar & Velocity-Driven Time-Morphing Engine
-   High-End Notion / Linear / Cron Dark Utilitarian Theme
+   Chronos Calendar - High-End Dark Utilitarian Theme
+   Stateless Single Source of Truth • Full-Width Timeline Grid
    ========================================================================== */
 
 .chronos-container {
@@ -16,10 +16,11 @@
   color: #f4f4f5;
   user-select: none;
   position: relative;
+  width: 100%;
 }
 
 /* ==========================================================================
-   Header & Action Controls
+   1. Header & Navigation Controls
    ========================================================================== */
 
 .chronos-header {
@@ -95,7 +96,6 @@
   letter-spacing: -0.01em;
 }
 
-/* Segmented View Switcher (Week / Day / Month) */
 .chronos-view-switch {
   display: inline-flex;
   background-color: rgba(255, 255, 255, 0.04);
@@ -128,7 +128,6 @@
   font-weight: 700;
 }
 
-/* Auto-Morph Shield Toggle */
 .chronos-morph-status-btn {
   display: inline-flex;
   align-items: center;
@@ -169,310 +168,153 @@
 }
 
 /* ==========================================================================
-   Main Layout (Sidebar + Calendar Views)
+   2. Horizontal Compact Backlog Strip
    ========================================================================== */
 
-.chronos-body {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  background-color: #0c0d0e;
-}
-
-/* ==========================================================================
-   Refined Backlog Sidebar
-   ========================================================================== */
-
-.chronos-sidebar {
-  width: 250px;
-  border-right: 1px solid rgba(255, 255, 255, 0.07);
-  background-color: #111215;
+.chronos-backlog-strip {
   display: flex;
   flex-direction: column;
+  background-color: #111215;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 16px;
+  gap: 6px;
   flex-shrink: 0;
-  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
   z-index: 15;
 }
 
-.chronos-sidebar.collapsed {
-  width: 38px;
+.chronos-backlog-strip.drag-over-unschedule {
+  background-color: rgba(245, 158, 11, 0.08);
+  border-bottom-color: #f59e0b;
 }
 
-.chronos-sidebar.drag-over-unschedule {
-  border: 1px dashed #f59e0b !important;
-  background-color: rgba(245, 158, 11, 0.06) !important;
-}
-
-.chronos-sidebar-header {
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+.chronos-backlog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.chronos-backlog-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #71717a;
-}
-
-.chronos-sidebar-toggle {
-  background: transparent;
-  border: none;
-  font-size: 11px;
   color: #a1a1aa;
-  cursor: pointer;
-  padding: 3px 5px;
-  border-radius: 4px;
-  transition: all 0.12s;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.chronos-sidebar-toggle:hover {
+.chronos-backlog-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background-color: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-}
-
-/* Backlog Search */
-.chronos-sidebar-search {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.chronos-sidebar-input {
-  width: 100%;
-  padding: 5px 8px;
-  font-size: 11px;
-  background-color: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 5px;
   color: #f4f4f5;
-  outline: none;
-  transition: border-color 0.15s;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
 }
 
-.chronos-sidebar-input:focus {
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-.chronos-sidebar-input::placeholder {
+.chronos-backlog-hint {
+  font-size: 11px;
   color: #52525b;
+  font-style: italic;
 }
 
-.chronos-sidebar-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
+.chronos-backlog-chips-row {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
 
-/* Sidebar Sticky Quick Task Creator */
-.chronos-sidebar-quick-add {
-  padding: 10px;
-  background-color: #131417;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.chronos-quick-input-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.chronos-quick-add-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  font-size: 11px;
-  background-color: #0c0d0e;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
-  color: #f4f4f5;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.chronos-quick-add-input:focus {
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
-.chronos-quick-add-input::placeholder {
-  color: #52525b;
-}
-
-.chronos-quick-add-btn {
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  background-color: #ffffff;
-  color: #09090b;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  flex-shrink: 0;
-}
-
-.chronos-quick-add-btn:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.chronos-quick-add-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.chronos-quick-pill-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-}
-
-.chronos-quick-pill-group {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-}
-
-.chronos-mini-pill {
-  padding: 2px 5px;
-  font-size: 9px;
-  font-weight: 700;
-  font-family: var(--font-mono, monospace);
-  border-radius: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: transparent;
+.chronos-backlog-empty {
+  font-size: 11.5px;
   color: #71717a;
-  cursor: pointer;
-  transition: all 0.12s;
+  font-style: italic;
+  padding: 4px 0;
 }
 
-.chronos-mini-pill:hover {
-  color: #f4f4f5;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.chronos-mini-pill.active {
-  background: #27272a;
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-.chronos-mini-pill.active.cat-General {
-  border-color: #a1a1aa;
-  color: #f4f4f5;
-}
-
-.chronos-mini-pill.active.cat-Engineering {
-  border-color: #3b82f6;
-  color: #60a5fa;
-  background: rgba(59, 130, 246, 0.15);
-}
-
-.chronos-mini-pill.active.cat-Design {
-  border-color: #a855f7;
-  color: #c084fc;
-  background: rgba(168, 85, 247, 0.15);
-}
-
-.chronos-mini-pill.active.cat-Personal {
-  border-color: #10b981;
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.15);
-}
-
-.chronos-mini-pill.active.prio-high {
-  border-color: #ef4444;
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.15);
-}
-
-.chronos-mini-pill.active.prio-medium {
-  border-color: #f59e0b;
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.15);
-}
-
-.chronos-mini-pill.active.prio-low {
-  border-color: #10b981;
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.15);
-}
-
-/* Floating Task Token Item */
-.chronos-sidebar-task {
-  padding: 7px 9px;
-  background-color: #16171b;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.chronos-backlog-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #18191d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 5px 10px;
   border-radius: 6px;
+  font-size: 12px;
+  color: #f4f4f5;
   cursor: grab;
-  transition: transform 0.12s, border-color 0.15s, background-color 0.15s;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  position: relative;
-  border-left: 3px solid #71717a;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  user-select: none;
 }
 
-.chronos-sidebar-task.priority-high {
-  border-left-color: #ef4444;
-}
-
-.chronos-sidebar-task.priority-medium {
-  border-left-color: #f59e0b;
-}
-
-.chronos-sidebar-task.priority-low {
-  border-left-color: #10b981;
-}
-
-.chronos-sidebar-task:hover {
-  background-color: #1c1d22;
-  border-color: rgba(255, 255, 255, 0.15);
+.chronos-backlog-chip:hover {
+  background-color: #222328;
+  border-color: rgba(255, 255, 255, 0.22);
   transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 
-.chronos-sidebar-task:active {
+.chronos-backlog-chip:active {
   cursor: grabbing;
 }
 
-.sidebar-task-title {
-  font-size: 11.5px;
+.backlog-chip-title {
   font-weight: 500;
-  color: #e4e4e7;
-  line-height: 1.3;
-  white-space: nowrap;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sidebar-task-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 9.5px;
-  color: #71717a;
+.backlog-chip-prio {
+  font-size: 9px;
+  font-weight: 700;
   font-family: var(--font-mono, monospace);
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
 }
 
-.sidebar-category-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.backlog-chip-prio.prio-high {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
 }
 
+.backlog-chip-prio.prio-medium {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.backlog-chip-prio.prio-low {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.backlog-chip-drag {
+  color: #52525b;
+  font-size: 10px;
+  letter-spacing: -1px;
+}
+
+/* Category indicator dot */
 .category-indicator-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
 }
 
@@ -492,22 +334,20 @@
   background-color: #a1a1aa;
 }
 
-.sidebar-drag-hint {
-  font-size: 9px;
-  color: #52525b;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.chronos-sidebar-task:hover .sidebar-drag-hint {
-  opacity: 1;
-}
-
 /* ==========================================================================
-   Week & Day Timeline View (Scrollable Grid)
+   3. Main Body & Full-Width Viewports
    ========================================================================== */
 
-.chronos-grid-wrapper {
+.chronos-body.full-width-body {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  background-color: #0c0d0e;
+}
+
+.chronos-viewport {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -516,37 +356,39 @@
   background-color: #0c0d0e;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  width: 100%;
 }
 
-/* Days Header Row */
-.chronos-days-header-row {
-  display: grid;
-  grid-template-columns: 56px repeat(7, 1fr);
+/* Days Header Bar */
+.chronos-grid-header {
+  display: flex;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background-color: #121316;
   position: sticky;
   top: 0;
   z-index: 10;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-}
-
-.chronos-days-header-row.day-view {
-  grid-template-columns: 56px 1fr;
+  width: 100%;
 }
 
 .chronos-time-gutter-header {
+  width: 60px;
+  flex-shrink: 0;
   padding: 10px 4px;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 9.5px;
-  font-family: var(--font-mono, monospace);
-  color: #52525b;
-  text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+.chronos-days-header-row {
+  display: flex;
+  flex: 1;
+  width: calc(100% - 60px);
+}
+
 .chronos-day-col-header {
+  flex: 1;
   padding: 8px 6px;
   text-align: center;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -556,7 +398,11 @@
   gap: 2px;
 }
 
-.col-header-weekday {
+.chronos-day-col-header.today .day-name {
+  color: #f43f5e;
+}
+
+.day-name {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -564,72 +410,75 @@
   color: #71717a;
 }
 
-.col-header-number {
+.day-number {
   font-family: var(--font-mono, monospace);
   font-size: 14px;
   font-weight: 600;
   color: #d4d4d8;
-  width: 24px;
-  height: 24px;
+}
+
+.today-circle {
+  background-color: #f43f5e;
+  color: #ffffff !important;
+  font-weight: 700;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
 }
 
-.chronos-day-col-header.is-today .col-header-weekday {
-  color: #f43f5e;
-}
-
-.chronos-day-col-header.is-today .col-header-number {
-  background-color: #f43f5e;
-  color: #ffffff;
-  font-weight: 700;
-}
-
-/* Timeline Grid Canvas */
-.chronos-timeline-grid {
-  display: grid;
-  grid-template-columns: 56px repeat(7, 1fr);
+/* Scrollable 24-Hour Grid Body */
+.chronos-grid-body {
+  display: flex;
   position: relative;
-  min-height: 1344px; /* 24 hours * 56px */
+  min-height: 1152px; /* 24 hours * 48px */
+  width: 100%;
 }
 
-.chronos-timeline-grid.day-view {
-  grid-template-columns: 56px 1fr;
-}
-
-/* Time Gutter (00:00 - 23:00) */
 .chronos-time-gutter {
+  width: 60px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   background-color: #0f1012;
 }
 
-.chronos-hour-label {
-  height: 56px;
+.chronos-time-label {
+  height: 48px;
   font-family: var(--font-mono, monospace);
   font-size: 10px;
   color: #52525b;
   text-align: right;
   padding-right: 8px;
-  transform: translateY(-8px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  transform: translateY(-7px);
 }
 
-/* Day Column & Time Slots */
+.chronos-day-columns {
+  display: flex;
+  flex: 1;
+  width: calc(100% - 60px);
+}
+
 .chronos-day-column {
+  flex: 1;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   position: relative;
   background-color: #0c0d0e;
 }
 
-.chronos-day-column.is-today {
+.chronos-day-column.today-column {
   background-color: rgba(255, 255, 255, 0.012);
 }
 
 .chronos-hour-slot {
-  height: 56px;
+  height: 48px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   box-sizing: border-box;
   transition: background-color 0.12s;
@@ -637,7 +486,6 @@
   position: relative;
 }
 
-/* Half-hour subtle dashed line */
 .chronos-hour-slot::after {
   content: '';
   position: absolute;
@@ -657,666 +505,289 @@
   border: 1px dashed #3b82f6;
 }
 
-/* Glowing Current Time Marker */
+/* Glowing Live Time Line */
 .chronos-current-time-line {
   position: absolute;
   left: 0;
   right: 0;
-  height: 1.5px;
+  height: 2px;
   background-color: #f43f5e;
   z-index: 10;
   pointer-events: none;
 }
 
-.chronos-current-time-line::before {
-  content: '';
+.chronos-current-time-dot {
   position: absolute;
   left: -4px;
-  top: -3.5px;
+  top: -3px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background-color: #f43f5e;
-  box-shadow: 0 0 8px rgba(244, 63, 94, 0.7);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.8);
 }
 
 /* ==========================================================================
-   Modern Task Cards (Notion / Linear Tints)
+   4. Scheduled Task Cards (Exact Time Slot Rendering)
    ========================================================================== */
 
 .chronos-event-card {
   position: absolute;
-  left: 3px;
-  right: 3px;
+  left: 2px;
+  right: 2px;
   border-radius: 6px;
-  padding: 5px 7px;
+  padding: 4px 6px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   cursor: pointer;
-  transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
-  z-index: 3;
+  transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s;
+  background-color: #1a1b1f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 3px solid #3b82f6;
 }
 
 .chronos-event-card:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
-  z-index: 8;
-  filter: brightness(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  z-index: 20 !important;
+  filter: brightness(1.08);
 }
 
-/* Category Tinting */
-.chronos-event-card.cat-Engineering {
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  border-left: 3px solid #3b82f6;
+.chronos-event-card.priority-high {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
 }
 
-.chronos-event-card.cat-Design {
-  background: rgba(168, 85, 247, 0.12);
-  border: 1px solid rgba(168, 85, 247, 0.25);
-  border-left: 3px solid #a855f7;
+.chronos-event-card.priority-medium {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
 }
 
-.chronos-event-card.cat-Personal {
+.chronos-event-card.priority-low {
+  border-left-color: #10b981;
   background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  border-left: 3px solid #10b981;
 }
 
-.chronos-event-card.cat-General {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-left: 3px solid #d4d4d8;
-}
-
-.chronos-event-card.morphed {
-  box-shadow: inset 0 0 0 1px #10b981;
-}
-
-.chronos-event-card.is-completed {
-  opacity: 0.65;
-  cursor: default;
+.chronos-event-card.completed {
+  opacity: 0.6;
   background: rgba(16, 185, 129, 0.06) !important;
-  border: 1px solid rgba(16, 185, 129, 0.2) !important;
-  border-left: 3px solid #10b981 !important;
-  user-select: none;
+  border-color: rgba(16, 185, 129, 0.2) !important;
+  border-left-color: #10b981 !important;
 }
 
-.chronos-event-card.is-completed:hover {
-  transform: none;
-  opacity: 0.85;
-  filter: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.chronos-event-card.is-completed .event-card-title {
+.chronos-event-card.completed .chronos-event-title {
   text-decoration: line-through;
   color: #a1a1aa;
 }
 
-/* Inline Check Button */
-.event-check-btn {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 8.5px;
-  color: transparent;
-  cursor: pointer;
-  transition: all 0.12s;
-  flex-shrink: 0;
-  padding: 0;
-  line-height: 1;
+.chronos-event-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+  gap: 2px;
 }
 
-.event-check-btn:hover {
-  border-color: #10b981;
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-}
-
-.event-check-btn.completed {
-  background-color: #10b981;
-  border-color: #10b981;
-  color: #052e16;
-  font-weight: 800;
-}
-
-.event-completed-badge {
-  font-family: var(--font-mono, monospace);
-  font-size: 8px;
-  font-weight: 800;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background-color: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
-}
-
-.event-overdue-badge {
-  font-family: var(--font-mono, monospace);
-  font-size: 8px;
-  font-weight: 800;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.4);
-}
-
-.chronos-event-card.is-overdue {
-  background: rgba(239, 68, 68, 0.08) !important;
-  border: 1px solid rgba(239, 68, 68, 0.35) !important;
-  border-left: 3px solid #ef4444 !important;
-  cursor: grab;
-}
-
-.chronos-event-card.is-overdue:active {
-  cursor: grabbing;
-}
-
-
-.event-card-header {
+.chronos-event-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 4px;
 }
 
-.event-card-time {
+.chronos-event-time {
   font-family: var(--font-mono, monospace);
   font-size: 9.5px;
   font-weight: 700;
+  color: #d4d4d8;
+}
+
+.chronos-event-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chronos-event-focus-btn,
+.chronos-event-check-btn {
+  background: transparent;
+  border: none;
   color: #a1a1aa;
-}
-
-.event-morph-badge {
-  font-family: var(--font-mono, monospace);
-  font-size: 8.5px;
-  font-weight: 800;
-  padding: 1px 4px;
+  cursor: pointer;
+  padding: 1px 3px;
+  font-size: 11px;
   border-radius: 3px;
-  background-color: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  transition: all 0.1s;
 }
 
-.event-card-title {
-  font-size: 11.5px;
+.chronos-event-focus-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #fbbf24;
+}
+
+.chronos-event-check-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #34d399;
+}
+
+.chronos-event-check-btn.checked {
+  color: #10b981;
+}
+
+.chronos-event-title {
+  font-size: 11px;
   font-weight: 600;
   color: #f4f4f5;
   line-height: 1.25;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.event-card-footer {
+.chronos-event-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 9px;
-  color: #a1a1aa;
-  font-family: var(--font-mono, monospace);
-  margin-top: 3px;
-}
-
-.event-card-badge {
-  padding: 1px 4px;
-  border-radius: 2px;
-  background-color: rgba(0, 0, 0, 0.25);
-  font-size: 8.5px;
-  text-transform: uppercase;
-}
-
-/* Bottom Edge Resize Handle */
-.event-resize-handle {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 6px;
-  cursor: s-resize;
-  z-index: 5;
-  transition: background-color 0.12s;
-}
-
-.event-resize-handle:hover {
-  background-color: rgba(255, 255, 255, 0.3);
+  color: #71717a;
 }
 
 /* ==========================================================================
-   Standard High-Performance Month View Grid (Notion / Google Calendar)
+   5. Month Viewport Grid
    ========================================================================== */
 
-.chronos-month-container {
+.chronos-month-viewport {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  background-color: #0c0d0e;
   overflow-y: auto;
-  box-sizing: border-box;
+  padding: 12px;
+  width: 100%;
 }
 
-.chronos-month-header-row {
+.chronos-month-grid-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  width: 100%;
-  background-color: #121316;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  box-sizing: border-box;
-}
-
-.chronos-month-header-cell {
-  padding: 10px 4px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
   text-align: center;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: #71717a;
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  box-sizing: border-box;
-}
-
-.chronos-month-header-cell:last-child {
-  border-right: none;
+  text-transform: uppercase;
 }
 
 .chronos-month-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  grid-auto-rows: 1fr;
-  width: 100%;
+  grid-auto-rows: minmax(100px, 1fr);
+  gap: 4px;
   flex: 1;
-  min-height: 0;
-  background-color: #0c0d0e;
-  box-sizing: border-box;
 }
 
 .chronos-month-cell {
-  min-height: 105px;
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  padding: 8px 6px;
+  background-color: #111215;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;
-  box-sizing: border-box;
-  overflow: hidden;
-  background-color: #0c0d0e;
-  transition: background-color 0.12s;
   cursor: pointer;
-}
-
-.chronos-month-cell:nth-child(7n) {
-  border-right: none;
+  transition: background-color 0.12s;
+  overflow: hidden;
 }
 
 .chronos-month-cell:hover {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: #16171b;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
-.chronos-month-cell.is-other-month {
+.chronos-month-cell.outside-month {
   opacity: 0.35;
 }
 
-.chronos-month-cell.is-today {
-  background-color: rgba(244, 63, 94, 0.03);
+.chronos-month-cell.today {
+  border-color: rgba(244, 63, 94, 0.4);
 }
 
-.month-cell-number {
+.chronos-month-cell-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chronos-month-day-num {
+  font-size: 11px;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  font-weight: 600;
   color: #a1a1aa;
-  margin-bottom: 2px;
 }
 
-.chronos-month-cell.is-today .month-cell-number {
-  color: #f43f5e;
+.chronos-month-day-num.today-pill {
+  background-color: #f43f5e;
+  color: #ffffff;
+  padding: 1px 5px;
+  border-radius: 10px;
   font-weight: 700;
 }
 
-.month-event-pill {
-  padding: 3px 6px;
-  font-size: 10.5px;
-  font-weight: 500;
-  border-radius: 4px;
-  white-space: nowrap;
+.chronos-month-events-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  background-color: #18191d;
+}
+
+.chronos-month-event-pill {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  background-color: #1c1d22;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #e4e4e7;
-  transition: all 0.12s;
-}
-
-.month-event-pill:hover {
-  background-color: #24262c;
-  color: #ffffff;
-}
-
-.month-event-pill.is-completed {
-  opacity: 0.55;
-  text-decoration: line-through;
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #a1a1aa;
-}
-
-.month-event-pill.is-overdue {
-  background-color: rgba(239, 68, 68, 0.14) !important;
-  border: 1px solid rgba(239, 68, 68, 0.4) !important;
-  color: #fca5a5 !important;
-}
-
-
-/* ==========================================================================
-   Refined Modal / Glassmorphic Overlay
-   ========================================================================== */
-
-.chronos-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  z-index: 10000;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 16px;
-  animation: modal-fade-in 0.15s ease-out;
-}
-
-@keyframes modal-fade-in {
-  from {
-    opacity: 0;
-    transform: scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.chronos-modal {
-  width: 100%;
-  max-width: 440px;
-  background-color: #141518;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.chronos-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 14px;
-  font-weight: 700;
-  color: #ffffff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding-bottom: 10px;
-}
-
-.chronos-modal-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.chronos-form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.chronos-form-row label {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #71717a;
-}
-
-.chronos-input {
-  padding: 8px 10px;
-  font-size: 12.5px;
-  background-color: #0c0d0e;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: #f4f4f5;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.chronos-input:focus {
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
-.chronos-time-inputs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.chronos-modal-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.btn-chronos-delete {
-  padding: 6px 12px;
-  font-size: 11.5px;
-  font-weight: 600;
-  background-color: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-chronos-delete:hover {
-  background-color: rgba(239, 68, 68, 0.12);
-  border-color: #ef4444;
-}
-
-.btn-chronos-focus {
-  padding: 6px 12px;
-  font-size: 11.5px;
-  font-weight: 600;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #e4e4e7;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-chronos-focus:hover {
-  background-color: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-}
-
-.btn-chronos-toggle-complete {
-  padding: 6px 12px;
-  font-size: 11.5px;
-  font-weight: 700;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  background-color: #10b981;
-  color: #052e16;
-  border: none;
-}
-
-.btn-chronos-toggle-complete:hover {
-  opacity: 0.9;
-}
-
-.btn-chronos-toggle-complete.is-done {
-  background-color: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #e4e4e7;
-}
-
-.btn-chronos-submit {
-  padding: 7px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  background-color: #ffffff;
-  color: #09090b;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.btn-chronos-submit:hover {
-  opacity: 0.9;
-}
-
-/* ==========================================================================
-   Interactive Overdue Alert Banner
-   ========================================================================== */
-
-.chronos-overdue-banner {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: #141518;
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7), 0 0 20px rgba(239, 68, 68, 0.15);
-  border-radius: 8px;
-  padding: 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  z-index: 1000;
-  animation: slideUpOverdue 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  max-width: 90%;
-}
-
-@keyframes slideUpOverdue {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 15px);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
-
-.overdue-banner-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.overdue-banner-icon {
-  font-size: 14px;
-}
-
-.overdue-banner-text {
-  font-size: 12px;
-  color: #f4f4f5;
-  font-weight: 500;
-}
-
-.overdue-banner-title {
-  font-weight: 700;
-  color: #fca5a5;
-  max-width: 200px;
+  gap: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: inline-block;
-  vertical-align: bottom;
 }
 
-.overdue-banner-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.chronos-month-event-pill.priority-high {
+  border-left: 2px solid #ef4444;
 }
 
-.btn-overdue-action {
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.12s;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background-color: rgba(255, 255, 255, 0.06);
-  color: #f4f4f5;
+.chronos-month-event-pill.priority-medium {
+  border-left: 2px solid #f59e0b;
 }
 
-.btn-overdue-action:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  color: #ffffff;
+.chronos-month-event-pill.priority-low {
+  border-left: 2px solid #10b981;
 }
 
-.btn-overdue-action.extend-btn {
-  border-color: rgba(59, 130, 246, 0.4);
-  background-color: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
+.chronos-month-event-pill.completed {
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 
-.btn-overdue-action.extend-btn:hover {
-  background-color: rgba(59, 130, 246, 0.3);
-  color: #ffffff;
-}
-
-.btn-overdue-action.done-btn {
-  border-color: rgba(16, 185, 129, 0.4);
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
-}
-
-.btn-overdue-action.done-btn:hover {
-  background-color: rgba(16, 185, 129, 0.3);
-  color: #ffffff;
-}
-
-.btn-overdue-dismiss {
-  background: transparent;
-  border: none;
+.month-event-time {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
   color: #71717a;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: color 0.12s;
 }
 
-.btn-overdue-dismiss:hover {
-  color: #f4f4f5;
+.month-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.chronos-month-more-badge {
+  font-size: 9px;
+  color: #71717a;
+  font-style: italic;
+}

@@ -355,6 +355,7 @@ export default function App() {
         priority: priority.toLowerCase(),
         category,
         due_date: validDueDate,
+        duration_minutes: duration_minutes || 30,
         order: 0,
         completed: false,
         created_at: new Date().toISOString()
@@ -371,25 +372,9 @@ export default function App() {
           userId: session?.user?.id
         })
 
-        // Synchronously register in Calendar so it displays on the grid immediately
-        const startTime = validDueDate
-        const endTime = new Date(new Date(startTime).getTime() + (duration_minutes || 30) * 60000).toISOString()
-        await api
-          .createCalendarEvent({
-            title: sanitizedTitle,
-            startTime,
-            endTime,
-            taskId: createdTask.id,
-            category,
-            priority: priority.toLowerCase(),
-            autoMorph: true,
-            userId: session?.user?.id
-          })
-          .catch((calErr) => {
-            console.warn('Calendar sync notice for created task:', calErr)
-          })
-
-        setTasks((prev) => prev.map((t) => (t.id === tempId ? createdTask : t)))
+        setTasks((prev) =>
+          prev.map((t) => (t.id === tempId ? { ...createdTask, due_date: validDueDate, duration_minutes } : t))
+        )
         loadActivities()
         return createdTask
       } catch (err) {
@@ -563,21 +548,48 @@ export default function App() {
     [editingTaskId, editingTitle, session, showToast, loadActivities]
   )
 
-  // Delete Task
+  // Delete Task (accepts task object or taskId string)
   const handleDeleteTask = useCallback(
-    async (task) => {
+    async (taskOrId) => {
+      const taskId = typeof taskOrId === 'object' ? taskOrId.id : taskOrId
+      const target = tasks.find((t) => t.id === taskId)
+      const taskTitle = typeof taskOrId === 'object' ? taskOrId.title : target?.title || ''
       const previousTasks = [...tasks]
-      setTasks((prev) => prev.filter((t) => t.id !== task.id))
-      setSelectedTaskIds((prev) => prev.filter((id) => id !== task.id))
+      setTasks((prev) => prev.filter((t) => t.id !== taskId))
+      setSelectedTaskIds((prev) => prev.filter((id) => id !== taskId))
 
       try {
-        await api.deleteTask(task.id, task.title, session?.user?.id)
-        showToast(`Deleted "${task.title}"`)
+        await api.deleteTask(taskId, taskTitle, session?.user?.id)
+        showToast(`Deleted "${taskTitle || 'task'}"`)
         loadActivities()
       } catch (err) {
         console.error('Failed to delete task:', err)
         setTasks(previousTasks)
         showToast(`Failed to delete task: ${err.message}`, 'error')
+      }
+    },
+    [tasks, session, showToast, loadActivities]
+  )
+
+  // Direct task update helper for calendar rescheduling and edits
+  const handleUpdateTaskDirect = useCallback(
+    async (taskId, updates) => {
+      const prevTasks = [...tasks]
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t))
+      )
+      try {
+        const updated = await api.updateTask(taskId, updates, session?.user?.id)
+        setTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, ...updated } : t))
+        )
+        loadActivities()
+        return updated
+      } catch (err) {
+        console.error('Failed to update task:', err)
+        setTasks(prevTasks)
+        showToast(`Failed to update task: ${err.message}`, 'error')
+        throw err
       }
     },
     [tasks, session, showToast, loadActivities]
@@ -887,20 +899,13 @@ export default function App() {
         showToast(`🤝 Partner: ${result.reply_summary || `Task "${result.title}" created.`}`)
       } else if (action === 'SCHEDULE_EVENT') {
         setInterimVoiceText(`⚡ Scheduling: "${result.title}"...`)
-        const startTime = result.start_time || new Date().toISOString()
-        const endTime =
-          result.end_time ||
-          new Date(new Date(startTime).getTime() + 3600000).toISOString()
-
-        await api.createCalendarEvent({
+        const startTime = result.start_time || result.due_date || new Date().toISOString()
+        await handleCreateTask({
           title: result.title,
-          startTime,
-          endTime,
-          category: result.category || 'General',
           priority: (result.priority || 'Medium').toLowerCase(),
-          autoMorph: true,
-          isCompleted: false,
-          userId: session?.user?.id
+          category: result.category || 'General',
+          due_date: startTime,
+          duration_minutes: 60
         })
         sfx.playSuccess()
         setMainTab('calendar')
@@ -933,7 +938,7 @@ export default function App() {
         )
       }
     },
-    [session, handleCreateTask, handleClearCompleted, handleOpenFocusSession, showToast]
+    [handleCreateTask, handleClearCompleted, handleOpenFocusSession, showToast]
   )
 
   // Partner Typed Command Submission (Fallback when voice is unavailable)
@@ -1231,10 +1236,13 @@ export default function App() {
       {/* Main Content: Chronos Calendar vs Task Registry */}
       {mainTab === 'calendar' ? (
         <ChronosCalendar
+          todos={tasks}
           tasks={tasks}
           onStartFocusSession={(targetTask) => handleOpenFocusSession(targetTask)}
           onToggleTask={handleToggleTask}
+          onUpdateTask={handleUpdateTaskDirect}
           onCreateTask={handleCreateTask}
+          onDeleteTask={handleDeleteTask}
           user={session?.user}
           showToast={showToast}
         />
