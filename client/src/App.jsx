@@ -3,13 +3,15 @@ import * as api from './api.js'
 import { supabase, isSupabaseConfigured } from './supabaseClient.js'
 import { validateTaskTitle, sanitizeText } from './utils/sanitize.js'
 import { useFocus } from './context/useFocus.js'
+import { useHashRoute } from './hooks/useHashRoute.js'
 import Auth from './components/Auth.jsx'
 import Header from './components/Header.jsx'
 import AmbientAura from './components/AmbientAura.jsx'
-import FocusSession from './components/FocusSession.jsx'
-import FocusMiniPlayer from './components/FocusMiniPlayer.jsx'
-import ChronosCalendar from './components/ChronosCalendar.jsx'
-import LandingPage from './components/LandingPage.jsx'
+import FocusSession from './components/focus/FocusSession.jsx'
+import MinimizedFocusWidget from './components/focus/MinimizedFocusWidget.jsx'
+import CalendarView from './components/calendar/CalendarView.jsx'
+import LandingPage from './components/landing/LandingPage.jsx'
+import TaskRegistryView from './components/tasks/TaskRegistryView.jsx'
 import * as sfx from './utils/sfx.js'
 import {
   startRecording,
@@ -21,36 +23,6 @@ import { parseCommandWithAI, stringSimilarity } from './utils/aiService.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
-
-const CATEGORY_ABBR = {
-  General: 'GEN',
-  Engineering: 'ENG',
-  Design: 'DES',
-  Personal: 'PERS'
-}
-
-/**
- * Format ISO date string into compact, readable relative time
- */
-function formatTimeAgo(isoString) {
-  if (!isoString) return ''
-  const date = new Date(isoString)
-  const now = new Date()
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric'
-  })
-}
 
 function findBestMatchingTask(taskList, targetQuery) {
   if (!taskList || taskList.length === 0 || !targetQuery) return null
@@ -159,12 +131,16 @@ export default function App() {
   const [newPriority, setNewPriority] = useState('medium')
   const [newCategory, setNewCategory] = useState('General')
 
-  // View routing & Navigation state
-  const [currentView, setCurrentView] = useState('landing') // 'landing' | 'app'
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  // Hash Routing Manager & State Bridge (#home, #main, #focus, #calendar)
+  const {
+    navigate,
+    exitFocusRoute,
+    isHome,
+    isFocus,
+    isCalendar
+  } = useHashRoute(session, isDemoMode)
 
-  // Navigation state (Tasks vs Chronos Calendar)
-  const [mainTab, setMainTab] = useState('tasks') // 'tasks' | 'calendar'
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
 
   // Filter & Sort state
   const [activeTab, setActiveTab] = useState('all') // 'all' | 'active' | 'completed'
@@ -340,18 +316,17 @@ export default function App() {
     }
   }, [editingTaskId])
 
-  // Launch Focus Session handler
+  // Launch Focus Session handler (navigates to #focus)
   const handleOpenFocusSession = useCallback(
     (targetTask = null) => {
       const selected = targetTask || tasks.find((t) => !t.completed) || tasks[0] || null
       startSession(selected)
+      navigate('focus')
     },
-    [tasks, startSession]
+    [tasks, startSession, navigate]
   )
 
-
-
-  // Sign out handler
+  // Sign out handler (returns to #home)
   const handleSignOut = useCallback(async () => {
     try {
       if (isSupabaseConfigured) {
@@ -359,13 +334,13 @@ export default function App() {
       }
       setSession(null)
       setIsDemoMode(false)
-      setCurrentView('landing')
+      navigate('home')
       showToast('Signed out of session')
     } catch (err) {
       console.error('Sign out error:', err)
       showToast('Failed to sign out', 'error')
     }
-  }, [showToast])
+  }, [showToast, navigate])
 
   // Direct programmatic task creation helper for components & AI actions
   const handleCreateTask = useCallback(
@@ -472,7 +447,7 @@ export default function App() {
           })
           sfx.playSuccess()
           showToast(parsed.reply_summary || `Jadwal "${parsed.title}" berhasil diatur.`)
-          setMainTab('calendar')
+          navigate('calendar')
         } else {
           // Standard single task fallback with validated title
           const validation = validateTaskTitle(rawInput)
@@ -502,7 +477,7 @@ export default function App() {
         setIsSubmitting(false)
       }
     },
-    [newTaskTitle, newPriority, newCategory, isSubmitting, session, handleCreateTask, showToast]
+    [newTaskTitle, newPriority, newCategory, isSubmitting, session, handleCreateTask, showToast, navigate]
   )
 
   // Toggle Task Completion with Spam-Click Protection & Busy Lock
@@ -938,7 +913,7 @@ export default function App() {
           duration_minutes: 60
         })
         sfx.playSuccess()
-        setMainTab('calendar')
+        navigate('calendar')
         setInterimVoiceText(`✓ ${result.reply_summary || `Scheduled: "${result.title}"`}`)
         showToast(`🤝 Partner: ${result.reply_summary || `Scheduled "${result.title}".`}`)
       } else if (action === 'NAVIGATE') {
@@ -950,7 +925,7 @@ export default function App() {
           setInterimVoiceText(`✓ ${reply}`)
           showToast(`🤝 Partner: ${reply}`)
         } else {
-          setMainTab(targetView)
+          navigate(targetView === 'calendar' ? 'calendar' : 'main')
           setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
           showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
         }
@@ -1164,7 +1139,8 @@ export default function App() {
       activeTask,
       tasks,
       viewMode,
-      showToast
+      showToast,
+      navigate
     ]
   )
 
@@ -1257,6 +1233,16 @@ export default function App() {
     tasks
   ])
 
+  // Sync viewMode with hash route seamlessly
+  useEffect(() => {
+    if (isFocus && viewMode !== 'fullscreen') {
+      const selected = activeTask || tasks.find((t) => !t.completed) || tasks[0] || null
+      startSession(selected)
+    } else if (!isFocus && viewMode === 'fullscreen') {
+      minimizeSession()
+    }
+  }, [isFocus, viewMode, activeTask, tasks, startSession, minimizeSession])
+
   // Global Keyboard shortcuts (/ for search, F for focus, V for Voice Partner, Esc to dismiss)
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1292,31 +1278,48 @@ export default function App() {
         }
       }
 
-      // Non-fullscreen shortcuts
-      if (viewMode !== 'fullscreen') {
-        if (e.key === '/') {
+      // Focus Mode shortcuts (F to toggle, Esc to return to previous route)
+      if (isFocus || viewMode === 'fullscreen') {
+        if (e.key === 'Escape' || e.key === 'f' || e.key === 'F') {
           e.preventDefault()
-          searchInputRef.current?.focus()
-        } else if (e.key === 'f' || e.key === 'F') {
+          exitFocusRoute()
+          minimizeSession()
+        }
+        return
+      }
+
+      // Non-focus shortcuts
+      if (e.key === '/') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        handleOpenFocusSession()
+      } else if (e.key === 'c' || e.key === 'C') {
+        if (!e.metaKey && !e.ctrlKey) {
           e.preventDefault()
-          handleOpenFocusSession()
-        } else if (e.key === 'c' || e.key === 'C') {
-          if (!e.metaKey && !e.ctrlKey) {
-            e.preventDefault()
-            setMainTab('calendar')
-          }
-        } else if (e.key === 't' || e.key === 'T') {
-          if (!e.metaKey && !e.ctrlKey) {
-            e.preventDefault()
-            setMainTab('tasks')
-          }
+          navigate('calendar')
+        }
+      } else if (e.key === 't' || e.key === 'T') {
+        if (!e.metaKey && !e.ctrlKey) {
+          e.preventDefault()
+          navigate('main')
         }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [editingTaskId, viewMode, handleOpenFocusSession, handleTogglePartner])
+  }, [
+    editingTaskId,
+    isFocus,
+    viewMode,
+    handleOpenFocusSession,
+    handleTogglePartner,
+    exitFocusRoute,
+    minimizeSession,
+    navigate
+  ])
 
   // If waiting for auth check
   if (!authInitialized) {
@@ -1327,8 +1330,8 @@ export default function App() {
     )
   }
 
-  // Render Landing Page if current view is landing
-  if (currentView === 'landing') {
+  // Render Landing Page if current route is #home
+  if (isHome) {
     return (
       <div className="landing-view-container">
         {/* Toast Notification Container */}
@@ -1352,7 +1355,7 @@ export default function App() {
           onOpenAuth={() => setIsAuthModalOpen(true)}
           onEnterApp={() => {
             setIsDemoMode(true)
-            setCurrentView('app')
+            navigate('main')
           }}
           session={session}
           displayName={displayName}
@@ -1380,7 +1383,7 @@ export default function App() {
                 onDemoAccess={() => {
                   setIsDemoMode(true)
                   setIsAuthModalOpen(false)
-                  setCurrentView('app')
+                  navigate('main')
                 }}
                 onClose={() => setIsAuthModalOpen(false)}
               />
@@ -1412,8 +1415,11 @@ export default function App() {
         </div>
 
         <Auth
-          onDemoAccess={() => setIsDemoMode(true)}
-          onClose={() => setCurrentView('landing')}
+          onDemoAccess={() => {
+            setIsDemoMode(true)
+            navigate('main')
+          }}
+          onClose={() => navigate('home')}
         />
       </div>
     )
@@ -1427,8 +1433,8 @@ export default function App() {
         isListening={isPartnerRecording}
       />
 
-      {/* Fullscreen Zen Pomodoro Overlay */}
-      {viewMode === 'fullscreen' && (
+      {/* Fullscreen Zen Pomodoro Overlay (#focus) */}
+      {(viewMode === 'fullscreen' || isFocus) && (
         <FocusSession
           tasks={tasks}
           busyTaskIds={busyTaskIds}
@@ -1441,8 +1447,8 @@ export default function App() {
       )}
 
       {/* Floating Picture-in-Picture (PiP) Mini Player */}
-      {viewMode === 'minimized' && (
-        <FocusMiniPlayer
+      {viewMode === 'minimized' && !isFocus && (
+        <MinimizedFocusWidget
           tasks={tasks}
           busyTaskIds={busyTaskIds}
           onToggleTask={handleToggleTask}
@@ -1564,8 +1570,8 @@ export default function App() {
       {/* Global Application Header with Navigation & Partner Voice */}
       <Header
         metrics={metrics}
-        mainTab={mainTab}
-        setMainTab={setMainTab}
+        mainTab={isCalendar ? 'calendar' : 'tasks'}
+        setMainTab={(tab) => navigate(tab === 'calendar' ? 'calendar' : 'main')}
         session={session}
         displayName={displayName}
         handleSignOut={handleSignOut}
@@ -1577,7 +1583,7 @@ export default function App() {
         isPartnerActive={isPartnerRecording}
         isPartnerProcessing={isPartnerProcessing}
         onTogglePartner={handleTogglePartner}
-        onNavigateLanding={() => setCurrentView('landing')}
+        onNavigateLanding={() => navigate('home')}
       />
 
       {/* Error / Notice Banner */}
@@ -1590,9 +1596,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content: Chronos Calendar vs Task Registry */}
-      {mainTab === 'calendar' ? (
-        <ChronosCalendar
+      {/* Main Content: Adaptive Timebox Calendar (#calendar) vs Task Registry (#main) */}
+      {isCalendar ? (
+        <CalendarView
           todos={tasks}
           tasks={tasks}
           onStartFocusSession={(targetTask) => handleOpenFocusSession(targetTask)}
@@ -1604,484 +1610,73 @@ export default function App() {
           showToast={showToast}
         />
       ) : (
-        <>
-          {/* Metrics Bar */}
-          <section className="metrics-bar" aria-label="Task Summary Metrics">
-        <div className="metric-card">
-          <span className="metric-label">Total Tasks</span>
-          <span className="metric-value">{metrics.total}</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">Pending</span>
-          <span className="metric-value">{metrics.pending}</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">Completed</span>
-          <span className="metric-value">{metrics.completed}</span>
-        </div>
-        <div className={`metric-card ${metrics.highPriorityPending > 0 ? 'highlight' : ''}`}>
-          <span className="metric-label">High Priority</span>
-          <span className="metric-value">{metrics.highPriorityPending}</span>
-        </div>
-      </section>
-
-      {/* Task Input Form */}
-      <section className="task-form-card" aria-label="Add Task">
-        <form onSubmit={handleAddTask}>
-          <div className="input-row">
-            <input
-              ref={taskInputRef}
-              type="text"
-              className="task-input"
-              placeholder="Add a new task... (press Enter to save)"
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              maxLength={250}
-              disabled={isSubmitting}
-              autoFocus
-              aria-label="New task title"
-            />
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={!newTaskTitle.trim() || isSubmitting}
-            >
-              {isSubmitting ? 'Adding...' : 'Add Task'}
-            </button>
-          </div>
-
-          <div className="form-controls-row" style={{ marginTop: '12px' }}>
-            <div className="form-selectors-left">
-              {/* Category Selector */}
-              <div className="selector-group">
-                <span className="selector-label">Category:</span>
-                <div className="selector-options" role="radiogroup" aria-label="Task Category">
-                  {CATEGORIES.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      className={`control-btn ${newCategory === cat ? 'active category-active' : ''}`}
-                      onClick={() => setNewCategory(cat)}
-                      role="radio"
-                      aria-checked={newCategory === cat}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Priority Selector */}
-              <div className="selector-group">
-                <span className="selector-label">Priority:</span>
-                <div className="selector-options" role="radiogroup" aria-label="Task Priority">
-                  {['low', 'medium', 'high'].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className={`control-btn ${newPriority === p ? `active priority-${p}` : ''}`}
-                      onClick={() => setNewPriority(p)}
-                      role="radio"
-                      aria-checked={newPriority === p}
-                    >
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <span className="input-hint">Enter ↵ to save</span>
-          </div>
-        </form>
-      </section>
-
-      {/* Consolidated Toolbar: Workspaces, Status Tabs, Search, Priority, and Sort */}
-      <section className="unified-toolbar" aria-label="Task Filters and Navigation">
-        <div className="toolbar-top-row">
-          {/* Workspaces Filter Chips */}
-          <div className="workspace-tabs-group" role="tablist" aria-label="Filter by Workspace">
-            <span className="cat-filter-label">Workspaces:</span>
-            <button
-              type="button"
-              className={`cat-filter-chip ${categoryFilter === 'all' ? 'active' : ''}`}
-              onClick={() => setCategoryFilter('all')}
-            >
-              ALL ({categoryCounts.all || 0})
-            </button>
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                className={`cat-filter-chip ${categoryFilter === cat ? 'active' : ''}`}
-                onClick={() => setCategoryFilter(cat)}
-              >
-                {CATEGORY_ABBR[cat]} ({categoryCounts[cat] || 0})
-              </button>
-            ))}
-          </div>
-
-          {/* Status Tabs */}
-          <div className="tabs-group" role="tablist" aria-label="Filter by Status">
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
-              onClick={() => setActiveTab('all')}
-              role="tab"
-              aria-selected={activeTab === 'all'}
-            >
-              All <span className="tab-count">{metrics.total}</span>
-            </button>
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === 'active' ? 'active' : ''}`}
-              onClick={() => setActiveTab('active')}
-              role="tab"
-              aria-selected={activeTab === 'active'}
-            >
-              Active <span className="tab-count">{metrics.pending}</span>
-            </button>
-            <button
-              type="button"
-              className={`tab-btn ${activeTab === 'completed' ? 'active' : ''}`}
-              onClick={() => setActiveTab('completed')}
-              role="tab"
-              aria-selected={activeTab === 'completed'}
-            >
-              Completed <span className="tab-count">{metrics.completed}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="toolbar-bottom-row">
-          {/* Search bar */}
-          <div className="search-input-wrapper">
-            <input
-              ref={searchInputRef}
-              type="text"
-              className="search-input"
-              placeholder="Search tasks... (/)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              maxLength={100}
-              aria-label="Search tasks"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                className="search-clear-btn"
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear search query"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {/* Priority Filter Chips */}
-          <div className="priority-chips-group">
-            <span className="sort-label">Priority:</span>
-            {['all', 'high', 'medium', 'low'].map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={`priority-chip ${priorityFilter === p ? 'active' : ''}`}
-                onClick={() => setPriorityFilter(p)}
-              >
-                {p.charAt(0).toUpperCase() + p.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          {/* Sort Dropdown */}
-          <div className="sort-group">
-            <label htmlFor="sort-select" className="sort-label">Sort:</label>
-            <select
-              id="sort-select"
-              className="sort-select"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-            >
-              <option value="custom">Custom Order (Drag & Drop)</option>
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="priority">Priority (High to Low)</option>
-              <option value="alphabetical">Title (A-Z)</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      {/* Multi-Selection Batch Action Bar */}
-      {selectedTaskIds.length > 0 && (
-        <section className="selection-action-bar" aria-label="Batch Actions">
-          <span className="selection-count-text">
-            {selectedTaskIds.length} item{selectedTaskIds.length === 1 ? '' : 's'} selected
-          </span>
-          <div className="selection-buttons">
-            <button
-              type="button"
-              className="btn-batch primary"
-              onClick={() => handleBatchStatus(true)}
-            >
-              Mark Complete
-            </button>
-            <button
-              type="button"
-              className="btn-batch"
-              onClick={() => handleBatchStatus(false)}
-            >
-              Mark Active
-            </button>
-            <button
-              type="button"
-              className="btn-batch"
-              onClick={() => setSelectedTaskIds([])}
-            >
-              Deselect All
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* Task List */}
-      <section className="task-list-container" aria-label="Task List">
-        <div className="task-list-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input
-              type="checkbox"
-              className="select-checkbox"
-              checked={areAllFilteredSelected}
-              onChange={handleSelectAllFiltered}
-              aria-label="Select all displayed tasks"
-              title="Select all"
-            />
-            <span>
-              Items ({filteredTasks.length})
-              {isDnDActive && (
-                <span style={{ fontSize: '11px', fontWeight: 'normal', marginLeft: '6px', color: 'var(--text-subtle)' }}>
-                  • Drag ⋮⋮ to reorder
-                </span>
-              )}
-            </span>
-          </div>
-          <span>Tags, Priority & Actions</span>
-        </div>
-
-        {isLoading ? (
-          <div className="loading-state">Loading tasks from registry...</div>
-        ) : filteredTasks.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-state-title">
-              {searchQuery
-                ? `No tasks matching "${searchQuery}"`
-                : categoryFilter !== 'all'
-                ? `No tasks in workspace "${categoryFilter}"`
-                : priorityFilter !== 'all'
-                ? `No ${priorityFilter} priority tasks found`
-                : activeTab === 'completed'
-                ? 'No completed tasks recorded'
-                : activeTab === 'active'
-                ? 'All pending tasks completed'
-                : 'No tasks registered'}
-            </span>
-            <span className="empty-state-subtitle">
-              {searchQuery || categoryFilter !== 'all' || priorityFilter !== 'all'
-                ? 'Try adjusting your filters or search terms.'
-                : 'Type a task in the field above and press Enter.'}
-            </span>
-          </div>
-        ) : (
-          <ul className="task-list">
-            {filteredTasks.map((task) => {
-              const isDragging = draggedTaskId === task.id
-              const isDragOver = dragOverTaskId === task.id
-              const isDragOverTop = isDragOver && dropPosition === 'top'
-              const isDragOverBottom = isDragOver && dropPosition === 'bottom'
-
-              const categoryClass = `cat-${(task.category || 'general').toLowerCase()}`
-              const categoryAbbr = CATEGORY_ABBR[task.category] || CATEGORY_ABBR.General
-
-              return (
-                <li
-                  key={task.id}
-                  draggable={isDnDActive}
-                  onDragStart={(e) => isDnDActive && handleDragStart(e, task)}
-                  onDragOver={(e) => isDnDActive && handleDragOver(e, task)}
-                  onDragLeave={isDnDActive ? handleDragLeave : undefined}
-                  onDrop={(e) => isDnDActive && handleDrop(e, task)}
-                  onDragEnd={isDnDActive ? handleDragEnd : undefined}
-                  className={`task-item ${task.completed ? 'completed' : ''} ${
-                    selectedTaskIds.includes(task.id) ? 'selected' : ''
-                  } ${isDragging ? 'dragging' : ''} ${isDragOverTop ? 'drag-over-top' : ''} ${
-                    isDragOverBottom ? 'drag-over-bottom' : ''
-                  }`}
-                >
-                  <div className="task-item-left">
-                    {isDnDActive && (
-                      <span className="drag-handle" title="Drag to reorder" aria-hidden="true">
-                        ⋮⋮
-                      </span>
-                    )}
-
-                    <input
-                      type="checkbox"
-                      className="select-checkbox"
-                      checked={selectedTaskIds.includes(task.id)}
-                      onChange={() => handleToggleSelect(task.id)}
-                      aria-label={`Select task "${task.title}"`}
-                    />
-
-                    <button
-                      type="button"
-                      className={`custom-checkbox-btn ${task.completed ? 'checked' : ''}`}
-                      onClick={() => handleToggleTask(task)}
-                      disabled={busyTaskIds.has(task.id)}
-                      role="checkbox"
-                      aria-checked={task.completed}
-                      aria-label={`Mark "${task.title}" as ${task.completed ? 'incomplete' : 'complete'}`}
-                    >
-                      {task.completed && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </button>
-
-                    <div className="task-content">
-                      {editingTaskId === task.id ? (
-                        <input
-                          ref={editInputRef}
-                          type="text"
-                          className="inline-edit-input"
-                          value={editingTitle}
-                          onChange={(e) => setEditingTitle(e.target.value)}
-                          maxLength={250}
-                          onBlur={() => handleSaveEdit(task)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSaveEdit(task)
-                            if (e.key === 'Escape') setEditingTaskId(null)
-                          }}
-                          aria-label="Edit task title"
-                        />
-                      ) : (
-                        <>
-                          <span
-                            className="task-title"
-                            onDoubleClick={() => handleStartEdit(task)}
-                            title="Double-click to edit title"
-                          >
-                            {task.title}
-                          </span>
-                          <button
-                            type="button"
-                            className="btn-edit-title"
-                            onClick={() => handleStartEdit(task)}
-                            aria-label={`Edit title for "${task.title}"`}
-                            title="Edit title"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="task-item-right">
-                    {/* Launch Focus Session on this Task Button */}
-                    <button
-                      type="button"
-                      className="btn-edit-title"
-                      onClick={() => handleOpenFocusSession(task)}
-                      title={`Focus on "${task.title}"`}
-                      aria-label={`Focus on "${task.title}"`}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                      </svg>
-                    </button>
-
-                    {/* Due Date Deadline Badge */}
-                    {task.due_date && (
-                      <span
-                        className="task-deadline-badge"
-                        title={`Deadline: ${new Date(task.due_date).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' })}`}
-                      >
-                        📅 {new Date(task.due_date).toLocaleDateString('id-ID', { month: 'short', day: 'numeric' })}{' '}
-                        {new Date(task.due_date).getHours() !== 23 || new Date(task.due_date).getMinutes() !== 59
-                          ? new Date(task.due_date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
-                          : ''}
-                      </span>
-                    )}
-
-                    {/* Category Tag Badge */}
-                    <span
-                      className={`category-badge ${categoryClass}`}
-                      title={`Workspace: ${task.category || 'General'}`}
-                    >
-                      {categoryAbbr}
-                    </span>
-
-                    {/* Priority Badge */}
-                    <span className={`priority-badge priority-${task.priority}`}>
-                      {task.priority}
-                    </span>
-
-                    <span className="task-timestamp" title={task.created_at ? new Date(task.created_at).toLocaleString() : ''}>
-                      {formatTimeAgo(task.created_at || task.createdAt)}
-                    </span>
-
-                    <button
-                      type="button"
-                      className="btn-delete"
-                      onClick={() => handleDeleteTask(task)}
-                      aria-label={`Delete task "${task.title}"`}
-                      title="Delete task"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3 6h18" />
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-
-        {/* Footer */}
-        <footer className="task-list-footer">
-          <span>
-            {metrics.completed} of {metrics.total} task{metrics.total === 1 ? '' : 's'} completed
-          </span>
-          {metrics.completed > 0 && (
-            <button
-              type="button"
-              className="btn-link"
-              onClick={handleClearCompleted}
-            >
-              Clear completed ({metrics.completed})
-            </button>
-          )}
-        </footer>
-      </section>
-      </>
+        <TaskRegistryView
+          metrics={metrics}
+          taskInputRef={taskInputRef}
+          newTaskTitle={newTaskTitle}
+          setNewTaskTitle={setNewTaskTitle}
+          newCategory={newCategory}
+          setNewCategory={setNewCategory}
+          newPriority={newPriority}
+          setNewPriority={setNewPriority}
+          isSubmitting={isSubmitting}
+          handleAddTask={handleAddTask}
+          categories={CATEGORIES}
+          categoryCounts={categoryCounts}
+          categoryFilter={categoryFilter}
+          setCategoryFilter={setCategoryFilter}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          searchInputRef={searchInputRef}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          priorityFilter={priorityFilter}
+          setPriorityFilter={setPriorityFilter}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          selectedTaskIds={selectedTaskIds}
+          setSelectedTaskIds={setSelectedTaskIds}
+          handleBatchStatus={handleBatchStatus}
+          areAllFilteredSelected={areAllFilteredSelected}
+          handleSelectAllFiltered={handleSelectAllFiltered}
+          handleToggleSelect={handleToggleSelect}
+          handleToggleTask={handleToggleTask}
+          handleDeleteTask={handleDeleteTask}
+          handleOpenFocusSession={handleOpenFocusSession}
+          handleStartEdit={handleStartEdit}
+          handleSaveEdit={handleSaveEdit}
+          editingTaskId={editingTaskId}
+          setEditingTaskId={setEditingTaskId}
+          editingTitle={editingTitle}
+          setEditingTitle={setEditingTitle}
+          editInputRef={editInputRef}
+          busyTaskIds={busyTaskIds}
+          isDnDActive={isDnDActive}
+          draggedTaskId={draggedTaskId}
+          dragOverTaskId={dragOverTaskId}
+          dropPosition={dropPosition}
+          handleDragStart={handleDragStart}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          handleDragEnd={handleDragEnd}
+          isLoading={isLoading}
+          filteredTasks={filteredTasks}
+          handleClearCompleted={handleClearCompleted}
+        />
       )}
 
       {/* Shortcuts Legend */}
       <div className="shortcuts-legend">
         <span><kbd className="key-badge">F</kbd> Focus session</span>
+        <span><kbd className="key-badge">T</kbd> Tasks (#main)</span>
+        <span><kbd className="key-badge">C</kbd> Calendar (#calendar)</span>
+        <span><kbd className="key-badge">V</kbd> Voice Partner</span>
         <span><kbd className="key-badge">↵</kbd> Save task / Edit</span>
         <span><kbd className="key-badge">2× Click</kbd> Inline edit</span>
         <span><kbd className="key-badge">⋮⋮ Drag</kbd> Reorder</span>
         <span><kbd className="key-badge">/</kbd> Quick search</span>
-        <span><kbd className="key-badge">Esc</kbd> Cancel / Clear</span>
+        <span><kbd className="key-badge">Esc</kbd> Cancel / Exit Focus</span>
       </div>
     </div>
   )
