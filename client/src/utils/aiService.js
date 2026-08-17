@@ -160,6 +160,19 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
     action = 'MINIMIZE_FOCUS'
     replySummary = 'Memperkecil Focus Mode ke floating mini-player.'
   } else if (
+    /^(?:buka|lihat|masuk|start|mulai|open|switch to|go to)\s+(?:ke\s+|tab\s+|mode\s+)?(?:mode\s+)?(?:focus|fokus)(?:\s+mode)?$/i.test(
+      lower
+    ) ||
+    /buka (tab |mode )?fokus|masuk mode fokus|start focus mode|open focus( mode)?/i.test(lower)
+  ) {
+    return {
+      action: 'NAVIGATE',
+      tasks: [],
+      target_view: 'focus',
+      reply_summary: 'Membuka mode fokus.',
+      raw: transcript
+    }
+  } else if (
     /(?:tandai|mark)\s+(?:task|tugas)?\s*(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done)|selesaikan\s+(?:task|tugas|fokus(?:\s+task)?)/i.test(
       lower
     )
@@ -357,6 +370,8 @@ CRITICAL TIMEZONE & OFFSET RULES:
     Output "action": "FOCUS_TASK", "target_task_title": "Clean extracted task title", "duration_minutes": 25, "reply_summary": "Mengarahkan fokus ke task tersebut."
 13. If user asks to mark current active focus task as completed (e.g. "Tandai task saat ini selesai", "Task ini selesai", "Selesaikan fokus task", "Mark current task as done", "Tandai tugas ini selesai"):
     Output "action": "COMPLETE_ACTIVE_TASK", "reply_summary": "Menandai task aktif saat ini selesai."
+14. If user asks to open, enter, start, or switch to Focus Mode (e.g. "buka tab fokus", "buka mode fokus", "buka fokus", "masuk mode fokus", "open focus", "start focus mode", "ke fokus"):
+    Output "action": "NAVIGATE", "target_view": "focus", "reply_summary": "Membuka mode fokus."
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {

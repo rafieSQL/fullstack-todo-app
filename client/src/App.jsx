@@ -940,11 +940,14 @@ export default function App() {
         const targetView = result.target_view || 'tasks'
         if (targetView === 'focus') {
           handleOpenFocusSession()
+          const reply = result.reply_summary || 'Membuka mode fokus.'
+          setInterimVoiceText(`✓ ${reply}`)
+          showToast(`🤝 Partner: ${reply}`)
         } else {
           setMainTab(targetView)
+          setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
+          showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
         }
-        setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
-        showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
       } else if (action === 'EXIT_FOCUS') {
         endSession()
         sfx.playSuccess()
@@ -982,8 +985,8 @@ export default function App() {
         } else {
           handleOpenFocusSession()
           sfx.playSuccess()
-          setInterimVoiceText('✓ Membuka Focus Mode')
-          showToast('🤝 Partner: Membuka Focus Mode')
+          setInterimVoiceText('✓ Membuka mode fokus.')
+          showToast('🤝 Partner: Membuka mode fokus.')
         }
       } else if (action === 'COMPLETE_ACTIVE_TASK') {
         const targetToComplete = activeTask || tasks.find((t) => !t.completed)
@@ -1009,6 +1012,18 @@ export default function App() {
       } else {
         // Fast-path regex checks for Focus mode commands
         const lowerTranscript = (transcript || '').toLowerCase().trim()
+        if (
+          /^(?:buka|lihat|masuk|start|mulai|open|switch to|go to)\s+(?:ke\s+|tab\s+|mode\s+)?(?:mode\s+)?(?:focus|fokus)(?:\s+mode)?$/i.test(
+            lowerTranscript
+          ) ||
+          /buka (tab |mode )?fokus|masuk mode fokus|start focus mode|open focus( mode)?/i.test(lowerTranscript)
+        ) {
+          handleOpenFocusSession()
+          sfx.playSuccess()
+          setInterimVoiceText('✓ Membuka mode fokus.')
+          showToast('🤝 Partner: Membuka mode fokus.')
+          return
+        }
         if (
           /tutup (mode )?fokus|keluar (dari )?fokus|selesai fokus|akhiri fokus|exit focus|end focus|close focus/.test(
             lowerTranscript

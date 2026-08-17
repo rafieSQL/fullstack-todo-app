@@ -3,6 +3,7 @@ import { parseCommandWithAI } from './aiService.js'
 let mediaStream = null
 let mediaRecorder = null
 let audioChunks = []
+let recordingStartTime = 0
 
 export function isRecordingSupported() {
   return !!(
@@ -128,6 +129,7 @@ export async function startRecording() {
     }
 
     mediaRecorder.start(100)
+    recordingStartTime = Date.now()
     return { mimeType }
   } catch (error) {
     cancelRecording()
@@ -152,42 +154,53 @@ export function stopRecording() {
       return
     }
 
-    mediaRecorder.onstop = () => {
-      if (mediaStream) {
-        try {
-          mediaStream.getTracks().forEach((track) => track.stop())
-        } catch {
-          // ignore
-        }
-        mediaStream = null
-      }
+    const elapsed = Date.now() - recordingStartTime
+    const minDelay = Math.max(0, 300 - elapsed)
 
-      const mimeType = mediaRecorder ? mediaRecorder.mimeType : 'audio/webm'
-      const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' })
-      audioChunks = []
-
-      if (!audioBlob || audioBlob.size === 0) {
-        reject(new Error('Suara tidak terdengar jelas, silakan coba lagi.'))
+    setTimeout(() => {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        cancelRecording()
+        reject(new Error('Tidak ada rekaman suara aktif.'))
         return
       }
 
-      resolve(audioBlob)
-    }
+      mediaRecorder.onstop = () => {
+        if (mediaStream) {
+          try {
+            mediaStream.getTracks().forEach((track) => track.stop())
+          } catch {
+            // ignore
+          }
+          mediaStream = null
+        }
 
-    mediaRecorder.onerror = (event) => {
-      cancelRecording()
-      reject(event.error || new Error('Terjadi kesalahan saat merekam suara.'))
-    }
+        const mimeType = mediaRecorder ? mediaRecorder.mimeType : 'audio/webm'
+        const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' })
+        audioChunks = []
 
-    try {
-      if (mediaRecorder.state !== 'inactive') {
-        mediaRecorder.requestData()
-        mediaRecorder.stop()
+        if (!audioBlob || audioBlob.size === 0) {
+          reject(new Error('Suara tidak terdengar jelas, silakan coba lagi.'))
+          return
+        }
+
+        resolve(audioBlob)
       }
-    } catch {
-      cancelRecording()
-      reject(new Error('Gagal menghentikan rekaman suara.'))
-    }
+
+      mediaRecorder.onerror = (event) => {
+        cancelRecording()
+        reject(event.error || new Error('Terjadi kesalahan saat merekam suara.'))
+      }
+
+      try {
+        if (mediaRecorder.state !== 'inactive') {
+          mediaRecorder.requestData()
+          mediaRecorder.stop()
+        }
+      } catch {
+        cancelRecording()
+        reject(new Error('Gagal menghentikan rekaman suara.'))
+      }
+    }, minDelay)
   })
 }
 
