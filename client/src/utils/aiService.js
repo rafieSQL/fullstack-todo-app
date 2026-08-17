@@ -208,16 +208,20 @@ function fallbackToLocal(transcript, currentTimeISO = null, existingTaskTitles =
       raw: transcript
     }
   } else if (
-    /(?:tandai|mark)\s+(?:task|tugas)?\s*(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done)|selesaikan\s+(?:task|tugas|fokus(?:\s+task)?)/i.test(
+    /(?:tandai|mark)?\s*(?:task|tugas)\s+(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done|beres|sudah beres)/i.test(
+      lower
+    ) ||
+    /selesaikan\s+(?:task|tugas)(?:\s+(?:ini|saat ini|fokus))?/i.test(lower) ||
+    /(?:tugas|task)\s+(?:ini|saat ini|fokus|sudah)\s*(?:selesai|beres|sudah beres)/i.test(lower) ||
+    /tugas ini selesai|tugas saat ini selesai|selesaikan tugas ini|tugas fokus selesai|task ini beres|tugas sudah beres/i.test(
       lower
     )
   ) {
-    action = 'COMPLETE_ACTIVE_TASK'
-    replySummary = 'Menandai task aktif saat ini selesai.'
     return {
-      action,
+      action: 'COMPLETE_ACTIVE_FOCUS_TASK',
+      target: 'active_focus_task',
       tasks: [],
-      reply_summary: replySummary,
+      reply_summary: 'Menandai tugas aktif selesai.',
       raw: transcript
     }
   } else {
@@ -295,6 +299,9 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
   }
   if (action === 'SCHEDULE_TASK') {
     action = 'SCHEDULE_EVENT'
+  }
+  if (action === 'COMPLETE_ACTIVE_TASK') {
+    action = 'COMPLETE_ACTIVE_FOCUS_TASK'
   }
 
   let tasks = []
@@ -440,14 +447,15 @@ CRITICAL TIMEZONE & OFFSET RULES:
     Output "action": "MINIMIZE_FOCUS", "reply_summary": "Memperkecil Focus Mode ke floating mini-player."
 12. If user asks to target a task in focus mode with/without custom duration (e.g. "Fokus ke task Review PR selama 25 menit", "Kerjakan Audit database 30 menit", "Fokus belajar kimia", "Focus on PR review for 45 mins"):
     Output "action": "FOCUS_TASK", "target_task_title": "Clean extracted task title", "duration_minutes": 25, "reply_summary": "Mengarahkan fokus ke task tersebut."
-13. If user asks to mark current active focus task as completed (e.g. "Tandai task saat ini selesai", "Task ini selesai", "Selesaikan fokus task", "Mark current task as done", "Tandai tugas ini selesai"):
-    Output "action": "COMPLETE_ACTIVE_TASK", "reply_summary": "Menandai task aktif saat ini selesai."
+13. If user asks to mark current active focus task as completed (e.g. "tugas ini selesai", "tugas saat ini selesai", "selesaikan tugas ini", "tugas fokus selesai", "task ini beres", "tugas sudah beres", "Tandai task saat ini selesai", "Mark current task as done", "Tandai tugas ini selesai"):
+    Output "action": "COMPLETE_ACTIVE_FOCUS_TASK", "target": "active_focus_task", "reply_summary": "Tugas berhasil diselesaikan."
 14. If user asks to open, enter, start, or switch to Focus Mode (e.g. "buka tab fokus", "buka mode fokus", "buka fokus", "masuk mode fokus", "open focus", "start focus mode", "ke fokus"):
     Output "action": "NAVIGATE", "target_view": "focus", "reply_summary": "Membuka mode fokus."
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {
-  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "FOCUS_TASK" | "COMPLETE_ACTIVE_TASK" | "UNKNOWN",
+  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "FOCUS_TASK" | "COMPLETE_ACTIVE_FOCUS_TASK" | "UNKNOWN",
+  "target": "active_focus_task" | null,
   "tasks": [
     {
       "title": "Clean, concise actionable title",

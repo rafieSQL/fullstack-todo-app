@@ -989,20 +989,25 @@ export default function App() {
           setInterimVoiceText('✓ Membuka mode fokus.')
           showToast('🤝 Partner: Membuka mode fokus.')
         }
-      } else if (action === 'COMPLETE_ACTIVE_TASK') {
-        const targetToComplete = activeTask || tasks.find((t) => !t.completed)
+      } else if (
+        action === 'COMPLETE_ACTIVE_FOCUS_TASK' ||
+        action === 'COMPLETE_ACTIVE_TASK'
+      ) {
+        const targetToComplete = activeTask
         if (targetToComplete) {
           if (!targetToComplete.completed) {
             await handleToggleTask(targetToComplete)
           }
           setActiveTask(null)
           sfx.playSuccess()
-          const msg = `Tugas "${targetToComplete.title}" ditandai selesai!`
+          const msg = `Tugas "${targetToComplete.title}" berhasil diselesaikan.`
           setInterimVoiceText(`✓ ${msg}`)
           showToast(`🤝 Partner: ${msg}`)
         } else {
-          setInterimVoiceText('✓ Tidak ada tugas aktif yang sedang ditargetkan')
-          showToast('🤝 Partner: Tidak ada tugas aktif yang sedang ditargetkan di Focus Mode.', 'info')
+          sfx.playDeactivate()
+          const msg = 'Tidak ada tugas yang sedang aktif di mode fokus.'
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`, 'info')
         }
       } else if (action === 'CLEAR_COMPLETED') {
         setInterimVoiceText('⚡ Purging completed tasks...')
@@ -1046,22 +1051,30 @@ export default function App() {
           return
         }
         if (
-          /(?:tandai|mark)\s+(?:task|tugas)?\s*(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done)|selesaikan\s+(?:task|tugas|fokus(?:\s+task)?)/i.test(
+          /(?:tandai|mark)?\s*(?:task|tugas)\s+(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done|beres|sudah beres)/i.test(
+            lowerTranscript
+          ) ||
+          /selesaikan\s+(?:task|tugas)(?:\s+(?:ini|saat ini|fokus))?/i.test(lowerTranscript) ||
+          /(?:tugas|task)\s+(?:ini|saat ini|fokus|sudah)\s*(?:selesai|beres|sudah beres)/i.test(lowerTranscript) ||
+          /tugas ini selesai|tugas saat ini selesai|selesaikan tugas ini|tugas fokus selesai|task ini beres|tugas sudah beres/i.test(
             lowerTranscript
           )
         ) {
-          const targetToComplete = activeTask || tasks.find((t) => !t.completed)
+          const targetToComplete = activeTask
           if (targetToComplete) {
             if (!targetToComplete.completed) {
               await handleToggleTask(targetToComplete)
             }
             setActiveTask(null)
             sfx.playSuccess()
-            const msg = `Tugas "${targetToComplete.title}" ditandai selesai!`
+            const msg = `Tugas "${targetToComplete.title}" berhasil diselesaikan.`
             setInterimVoiceText(`✓ ${msg}`)
             showToast(`🤝 Partner: ${msg}`)
           } else {
-            showToast('🤝 Partner: Tidak ada tugas aktif yang sedang ditargetkan.', 'info')
+            sfx.playDeactivate()
+            const msg = 'Tidak ada tugas yang sedang aktif di mode fokus.'
+            setInterimVoiceText(`✓ ${msg}`)
+            showToast(`🤝 Partner: ${msg}`, 'info')
           }
           return
         }

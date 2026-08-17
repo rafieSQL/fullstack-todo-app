@@ -106,7 +106,23 @@ export function parseVoiceIntent(rawTranscript) {
     }
   }
 
-  // 2. Clear Completed Tasks
+  // 2. Complete Active Focus Task
+  if (
+    /(?:tandai|mark)?\s*(?:task|tugas)\s+(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done|beres|sudah beres)/i.test(
+      text
+    ) ||
+    /selesaikan\s+(?:task|tugas)(?:\s+(?:ini|saat ini|fokus))?/i.test(text) ||
+    /(?:tugas|task)\s+(?:ini|saat ini|fokus|sudah)\s*(?:selesai|beres|sudah beres)/i.test(text) ||
+    /tugas ini selesai|tugas saat ini selesai|selesaikan tugas ini|tugas fokus selesai|task ini beres|tugas sudah beres/i.test(text)
+  ) {
+    return {
+      type: 'COMPLETE_ACTIVE_FOCUS_TASK',
+      target: 'active_focus_task',
+      raw: text
+    }
+  }
+
+  // 3. Clear Completed Tasks
   if (
     /(?:hapus|bersihkan|clear|purge|delete)\s+(?:yang\s+)?(?:selesai|completed|done|task selesai)/i.test(
       text
