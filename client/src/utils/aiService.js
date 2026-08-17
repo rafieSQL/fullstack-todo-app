@@ -159,6 +159,37 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
   ) {
     action = 'MINIMIZE_FOCUS'
     replySummary = 'Memperkecil Focus Mode ke floating mini-player.'
+  } else if (
+    /(?:tandai|mark)\s+(?:task|tugas)?\s*(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done)|selesaikan\s+(?:task|tugas|fokus(?:\s+task)?)/i.test(
+      lower
+    )
+  ) {
+    action = 'COMPLETE_ACTIVE_TASK'
+    replySummary = 'Menandai task aktif saat ini selesai.'
+    return {
+      action,
+      tasks: [],
+      reply_summary: replySummary,
+      raw: transcript
+    }
+  } else {
+    // Focus task targeting & duration regex: e.g. "Fokus ke task Review PR selama 25 menit" or "Kerjakan database 30 menit"
+    const focusTargetMatch = lower.match(
+      /(?:fokus(?:kan)?(?:\s+(?:ke|pada))?|kerjakan)\s+(?:task|tugas)?\s*(.+?)(?:\s+(?:selama|for)\s+(\d+)\s*(?:menit|mins?|m)|\s+(\d+)\s*(?:menit|mins?|m))?$/i
+    )
+    if (focusTargetMatch && !/tutup|keluar|selesai|akhiri|minimize|kalender|calendar/.test(focusTargetMatch[1])) {
+      const rawTarget = focusTargetMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
+      const rawMinutes = parseInt(focusTargetMatch[2] || focusTargetMatch[3], 10) || null
+      action = 'FOCUS_TASK'
+      return {
+        action,
+        tasks: [],
+        target_task_title: rawTarget,
+        duration_minutes: rawMinutes,
+        reply_summary: `Mengarahkan fokus ke "${rawTarget}"${rawMinutes ? ` selama ${rawMinutes} menit` : ''}.`,
+        raw: transcript
+      }
+    }
   }
 
   return {
@@ -264,6 +295,8 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
     action,
     tasks,
     title: result.title ? result.title.trim() : tasks[0]?.title || '',
+    target_task_title: result.target_task_title || result.target_task || result.title || null,
+    duration_minutes: result.duration_minutes ? parseInt(result.duration_minutes, 10) : null,
     start_time: normalizeTimezoneISO(rawStartTime, offsetStr),
     end_time: rawEndTime ? normalizeTimezoneISO(rawEndTime, offsetStr) : null,
     priority: result.priority ? capitalizeFirstLetter(result.priority) : tasks[0]?.priority || 'Medium',
@@ -320,10 +353,14 @@ CRITICAL TIMEZONE & OFFSET RULES:
     Output "action": "EXIT_FOCUS", "reply_summary": "Menutup sesi Focus Mode."
 11. If user asks to minimize focus mode or reduce to mini player (e.g. "minimize fokus", "kecilkan mode fokus", "minimize"):
     Output "action": "MINIMIZE_FOCUS", "reply_summary": "Memperkecil Focus Mode ke floating mini-player."
+12. If user asks to target a task in focus mode with/without custom duration (e.g. "Fokus ke task Review PR selama 25 menit", "Kerjakan Audit database 30 menit", "Fokus belajar kimia", "Focus on PR review for 45 mins"):
+    Output "action": "FOCUS_TASK", "target_task_title": "Clean extracted task title", "duration_minutes": 25, "reply_summary": "Mengarahkan fokus ke task tersebut."
+13. If user asks to mark current active focus task as completed (e.g. "Tandai task saat ini selesai", "Task ini selesai", "Selesaikan fokus task", "Mark current task as done", "Tandai tugas ini selesai"):
+    Output "action": "COMPLETE_ACTIVE_TASK", "reply_summary": "Menandai task aktif saat ini selesai."
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {
-  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "UNKNOWN",
+  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "FOCUS_TASK" | "COMPLETE_ACTIVE_TASK" | "UNKNOWN",
   "tasks": [
     {
       "title": "Clean, concise actionable title",
@@ -334,6 +371,8 @@ Return STRICT JSON ONLY matching this schema without markdown blocks:
     }
   ],
   "title": "Clean concise title for single event/task",
+  "target_task_title": "Title of task to target for FOCUS_TASK or null",
+  "duration_minutes": 30,
   "start_time": "YYYY-MM-DDTHH:MM:00${offsetStr} or null",
   "end_time": "YYYY-MM-DDTHH:MM:00${offsetStr} or null",
   "priority": "High" | "Medium" | "Low",

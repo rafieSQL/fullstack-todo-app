@@ -51,9 +51,56 @@ function formatTimeAgo(isoString) {
   })
 }
 
+function findBestMatchingTask(taskList, targetQuery) {
+  if (!taskList || taskList.length === 0 || !targetQuery) return null
+  const query = targetQuery.toLowerCase().trim()
+  if (!query) return null
+
+  // 1. Exact match
+  const exact = taskList.find((t) => t.title?.toLowerCase().trim() === query)
+  if (exact) return exact
+
+  // 2. Substring match
+  const includes = taskList.find((t) => t.title?.toLowerCase().includes(query))
+  if (includes) return includes
+
+  // 3. Reverse substring match
+  const reverseIncludes = taskList.find((t) => {
+    const tTitle = t.title?.toLowerCase().trim()
+    return tTitle && query.includes(tTitle)
+  })
+  if (reverseIncludes) return reverseIncludes
+
+  // 4. Token overlap match
+  const queryWords = query.split(/\s+/).filter((w) => w.length > 2)
+  if (queryWords.length > 0) {
+    let bestTask = null
+    let maxMatch = 0
+    for (const t of taskList) {
+      const titleLower = (t.title || '').toLowerCase()
+      const matchCount = queryWords.filter((w) => titleLower.includes(w)).length
+      if (matchCount > maxMatch) {
+        maxMatch = matchCount
+        bestTask = t
+      }
+    }
+    if (bestTask && maxMatch > 0) return bestTask
+  }
+
+  return null
+}
+
 export default function App() {
   // Focus Session global state from FocusContext
-  const { viewMode, startSession, minimizeSession, endSession } = useFocus()
+  const {
+    viewMode,
+    startSession,
+    minimizeSession,
+    endSession,
+    activeTask,
+    setActiveTask,
+    setCustomDuration
+  } = useFocus()
 
   // Auth state initialized based on configuration
   const [session, setSession] = useState(null)
@@ -908,6 +955,51 @@ export default function App() {
         sfx.playSuccess()
         setInterimVoiceText(`✓ ${result.reply_summary || 'Focus diminimize'}`)
         showToast(`🤝 Partner: ${result.reply_summary || 'Focus diminimize ke floating player.'}`)
+      } else if (action === 'FOCUS_TASK') {
+        const queryTitle = result.target_task_title || result.title || ''
+        const duration = result.duration_minutes
+          ? Math.max(1, Math.min(180, parseInt(result.duration_minutes, 10)))
+          : null
+        if (duration) {
+          setCustomDuration(duration)
+        }
+
+        const pendingTasks = tasks.filter((t) => !t.completed)
+        const matched = findBestMatchingTask(pendingTasks, queryTitle) || findBestMatchingTask(tasks, queryTitle)
+
+        if (matched) {
+          startSession(matched, matched.title)
+          sfx.playSuccess()
+          const msg = `Fokus ke "${matched.title}"${duration ? ` (${duration}m)` : ''}`
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`)
+        } else if (queryTitle) {
+          startSession(null, queryTitle)
+          sfx.playSuccess()
+          const msg = `Fokus pada "${queryTitle}"${duration ? ` (${duration}m)` : ''}`
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`)
+        } else {
+          handleOpenFocusSession()
+          sfx.playSuccess()
+          setInterimVoiceText('✓ Membuka Focus Mode')
+          showToast('🤝 Partner: Membuka Focus Mode')
+        }
+      } else if (action === 'COMPLETE_ACTIVE_TASK') {
+        const targetToComplete = activeTask || tasks.find((t) => !t.completed)
+        if (targetToComplete) {
+          if (!targetToComplete.completed) {
+            await handleToggleTask(targetToComplete)
+          }
+          setActiveTask(null)
+          sfx.playSuccess()
+          const msg = `Tugas "${targetToComplete.title}" ditandai selesai!`
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`)
+        } else {
+          setInterimVoiceText('✓ Tidak ada tugas aktif yang sedang ditargetkan')
+          showToast('🤝 Partner: Tidak ada tugas aktif yang sedang ditargetkan di Focus Mode.', 'info')
+        }
       } else if (action === 'CLEAR_COMPLETED') {
         setInterimVoiceText('⚡ Purging completed tasks...')
         await handleClearCompleted()
@@ -937,6 +1029,47 @@ export default function App() {
           showToast('🤝 Partner: Focus diminimize ke floating mini-player.')
           return
         }
+        if (
+          /(?:tandai|mark)\s+(?:task|tugas)?\s*(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done)|selesaikan\s+(?:task|tugas|fokus(?:\s+task)?)/i.test(
+            lowerTranscript
+          )
+        ) {
+          const targetToComplete = activeTask || tasks.find((t) => !t.completed)
+          if (targetToComplete) {
+            if (!targetToComplete.completed) {
+              await handleToggleTask(targetToComplete)
+            }
+            setActiveTask(null)
+            sfx.playSuccess()
+            const msg = `Tugas "${targetToComplete.title}" ditandai selesai!`
+            setInterimVoiceText(`✓ ${msg}`)
+            showToast(`🤝 Partner: ${msg}`)
+          } else {
+            showToast('🤝 Partner: Tidak ada tugas aktif yang sedang ditargetkan.', 'info')
+          }
+          return
+        }
+        const focusRegex = /(?:fokus(?:kan)?(?:\s+(?:ke|pada))?|kerjakan)\s+(?:task|tugas)?\s*(.+?)(?:\s+(?:selama|for)\s+(\d+)\s*(?:menit|mins?|m)|\s+(\d+)\s*(?:menit|mins?|m))?$/i
+        const focusMatch = lowerTranscript.match(focusRegex)
+        if (focusMatch && !/tutup|keluar|selesai|akhiri|minimize|kalender|calendar/.test(focusMatch[1])) {
+          const rawTarget = focusMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
+          const rawMinutes = parseInt(focusMatch[2] || focusMatch[3], 10) || null
+          if (rawMinutes) {
+            setCustomDuration(rawMinutes)
+          }
+          const pendingTasks = tasks.filter((t) => !t.completed)
+          const matched = findBestMatchingTask(pendingTasks, rawTarget) || findBestMatchingTask(tasks, rawTarget)
+          if (matched) {
+            startSession(matched, matched.title)
+          } else {
+            startSession(null, rawTarget)
+          }
+          sfx.playSuccess()
+          const msg = `Fokus ke "${matched ? matched.title : rawTarget}"${rawMinutes ? ` (${rawMinutes}m)` : ''}`
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`)
+          return
+        }
 
         setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
         showToast(
@@ -948,7 +1081,20 @@ export default function App() {
         )
       }
     },
-    [handleCreateTask, handleClearCompleted, handleOpenFocusSession, minimizeSession, endSession, showToast]
+    [
+      handleCreateTask,
+      handleClearCompleted,
+      handleOpenFocusSession,
+      handleToggleTask,
+      minimizeSession,
+      endSession,
+      startSession,
+      setActiveTask,
+      setCustomDuration,
+      activeTask,
+      tasks,
+      showToast
+    ]
   )
 
   // Partner Typed Command Submission (Fallback when voice is unavailable)
