@@ -53,7 +53,7 @@ function formatTimeAgo(isoString) {
 
 export default function App() {
   // Focus Session global state from FocusContext
-  const { viewMode, startSession } = useFocus()
+  const { viewMode, startSession, minimizeSession, endSession } = useFocus()
 
   // Auth state initialized based on configuration
   const [session, setSession] = useState(null)
@@ -898,6 +898,16 @@ export default function App() {
         }
         setInterimVoiceText(`✓ ${result.reply_summary || 'Switched view'}`)
         showToast(`🤝 Partner: ${result.reply_summary || 'Switched view'}`)
+      } else if (action === 'EXIT_FOCUS') {
+        endSession()
+        sfx.playSuccess()
+        setInterimVoiceText(`✓ ${result.reply_summary || 'Menutup sesi fokus'}`)
+        showToast(`🤝 Partner: ${result.reply_summary || 'Sesi fokus ditutup.'}`)
+      } else if (action === 'MINIMIZE_FOCUS') {
+        minimizeSession()
+        sfx.playSuccess()
+        setInterimVoiceText(`✓ ${result.reply_summary || 'Focus diminimize'}`)
+        showToast(`🤝 Partner: ${result.reply_summary || 'Focus diminimize ke floating player.'}`)
       } else if (action === 'CLEAR_COMPLETED') {
         setInterimVoiceText('⚡ Purging completed tasks...')
         await handleClearCompleted()
@@ -905,6 +915,29 @@ export default function App() {
         setInterimVoiceText(`✓ ${result.reply_summary || 'Cleared completed tasks'}`)
         showToast(`🤝 Partner: ${result.reply_summary || 'Cleared completed tasks.'}`)
       } else {
+        // Fast-path regex checks for Focus mode commands
+        const lowerTranscript = (transcript || '').toLowerCase().trim()
+        if (
+          /tutup (mode )?fokus|keluar (dari )?fokus|selesai fokus|akhiri fokus|exit focus|end focus|close focus/.test(
+            lowerTranscript
+          )
+        ) {
+          endSession()
+          sfx.playSuccess()
+          setInterimVoiceText('✓ Menutup sesi fokus')
+          showToast('🤝 Partner: Sesi fokus ditutup.')
+          return
+        }
+        if (
+          /minimize (mode )?fokus|kecilkan (mode )?fokus|\bminimize\b/.test(lowerTranscript)
+        ) {
+          minimizeSession()
+          sfx.playSuccess()
+          setInterimVoiceText('✓ Focus diminimize')
+          showToast('🤝 Partner: Focus diminimize ke floating mini-player.')
+          return
+        }
+
         setInterimVoiceText(transcript ? `"${transcript}"` : 'Suara tidak terdeteksi')
         showToast(
           `🤝 Partner: ${
@@ -915,7 +948,7 @@ export default function App() {
         )
       }
     },
-    [handleCreateTask, handleClearCompleted, handleOpenFocusSession, showToast]
+    [handleCreateTask, handleClearCompleted, handleOpenFocusSession, minimizeSession, endSession, showToast]
   )
 
   // Partner Typed Command Submission (Fallback when voice is unavailable)
@@ -1044,7 +1077,7 @@ export default function App() {
     <div className="app-container">
       {/* Ambient Aura Background Layer for Partner Voice Agent */}
       <AmbientAura
-        isActive={(isPartnerRecording || isPartnerProcessing) && viewMode !== 'fullscreen'}
+        isActive={isPartnerRecording || isPartnerProcessing}
         isListening={isPartnerRecording}
       />
 
@@ -1055,6 +1088,9 @@ export default function App() {
           busyTaskIds={busyTaskIds}
           onToggleTask={handleToggleTask}
           onQuickAddTask={handleQuickAddTask}
+          isPartnerActive={isPartnerRecording}
+          isPartnerProcessing={isPartnerProcessing}
+          onTogglePartner={handleTogglePartner}
         />
       )}
 
@@ -1086,7 +1122,7 @@ export default function App() {
       </div>
 
       {/* Partner Voice Live Audio Note Floating Capsule */}
-      {(isPartnerRecording || isPartnerProcessing) && viewMode !== 'fullscreen' && (
+      {(isPartnerRecording || isPartnerProcessing) && (
         <div className="partner-transcript-capsule" role="status" aria-live="polite">
           <div className="partner-capsule-mic">
             <div className="partner-sound-wave" aria-hidden="true">

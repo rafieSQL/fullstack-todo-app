@@ -12,7 +12,15 @@ import './FocusSession.css'
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
 const PRIORITIES = ['low', 'medium', 'high']
 
-export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask, busyTaskIds = new Set() }) {
+export default function FocusSession({
+  tasks = [],
+  onToggleTask,
+  onQuickAddTask,
+  busyTaskIds = new Set(),
+  isPartnerActive = false,
+  isPartnerProcessing = false,
+  onTogglePartner = () => {}
+}) {
   const {
     mode,
     customMinutes,
@@ -153,12 +161,17 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
       } else if (e.key === 'Escape') {
         e.preventDefault()
         minimizeSession()
+      } else if (e.key === 'v' || e.key === 'V') {
+        if (!e.metaKey && !e.ctrlKey) {
+          e.preventDefault()
+          onTogglePartner()
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePlay, resetTimer, minimizeSession])
+  }, [togglePlay, resetTimer, minimizeSession, onTogglePartner])
 
   return (
     <div className="focus-overlay" role="dialog" aria-label="Zen Pomodoro Focus Session" aria-modal="true">
@@ -253,6 +266,22 @@ export default function FocusSession({ tasks = [], onToggleTask, onQuickAddTask,
               Center View
             </button>
           )}
+
+          {/* Tell Partner Voice Button */}
+          <button
+            type="button"
+            className={`btn-focus-partner ${isPartnerActive ? 'recording' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onTogglePartner()
+            }}
+            title="Voice Partner: Command by Voice (V)"
+            aria-label="Voice Partner: Command by Voice (V)"
+          >
+            <span className="partner-mic-icon">{isPartnerProcessing ? '⚡' : '🎙️'}</span>
+            <span>{isPartnerActive ? 'Mendengarkan...' : isPartnerProcessing ? 'Memproses...' : 'Tell Partner'}</span>
+            <kbd className="key-badge">V</kbd>
+          </button>
 
           {/* Minimize to PiP Mini-Player */}
           <button

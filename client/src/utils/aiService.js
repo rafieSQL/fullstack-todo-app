@@ -145,6 +145,22 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
     replySummary = 'Membersihkan tugas yang telah selesai.'
   }
 
+  // Focus Mode voice control checks
+  const lower = (transcript || '').toLowerCase().trim()
+  if (
+    /tutup (mode )?fokus|keluar (dari )?fokus|selesai fokus|akhiri fokus|exit focus|end focus|close focus/.test(
+      lower
+    )
+  ) {
+    action = 'EXIT_FOCUS'
+    replySummary = 'Menutup sesi Focus Mode.'
+  } else if (
+    /minimize (mode )?fokus|kecilkan (mode )?fokus|\bminimize\b/.test(lower)
+  ) {
+    action = 'MINIMIZE_FOCUS'
+    replySummary = 'Memperkecil Focus Mode ke floating mini-player.'
+  }
+
   return {
     action,
     tasks,
@@ -300,10 +316,14 @@ CRITICAL TIMEZONE & OFFSET RULES:
 7. "duration_minutes": Duration in minutes (default 30 or 60).
 8. "priority": "High" | "Medium" | "Low". (Exams, tests, urgent deadlines = "High").
 9. "category": "General" | "Engineering" | "Design" | "Personal".
+10. If user asks to close, exit, end, or finish focus mode (e.g. "tutup mode fokus", "keluar dari fokus", "selesai fokus", "akhiri fokus", "exit focus", "end focus", "close focus"):
+    Output "action": "EXIT_FOCUS", "reply_summary": "Menutup sesi Focus Mode."
+11. If user asks to minimize focus mode or reduce to mini player (e.g. "minimize fokus", "kecilkan mode fokus", "minimize"):
+    Output "action": "MINIMIZE_FOCUS", "reply_summary": "Memperkecil Focus Mode ke floating mini-player."
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {
-  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "UNKNOWN",
+  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "UNKNOWN",
   "tasks": [
     {
       "title": "Clean, concise actionable title",
