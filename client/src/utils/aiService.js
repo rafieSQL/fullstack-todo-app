@@ -183,6 +183,18 @@ function fallbackToLocal(transcript, currentTimeISO = null, existingTaskTitles =
   // Focus Mode voice control checks
   const lower = (transcript || '').toLowerCase().trim()
   if (
+    /tutup minimize|hapus minimize|close minimize|matikan minimize|tutup widget fokus|hapus widget fokus|tutup widget|hapus widget|close widget/i.test(
+      lower
+    )
+  ) {
+    return {
+      action: 'CLOSE_MINIMIZED_FOCUS',
+      target: 'minimized_focus_widget',
+      tasks: [],
+      reply_summary: 'Widget fokus berhasil ditutup.',
+      raw: transcript
+    }
+  } else if (
     /tutup (mode )?fokus|keluar (dari )?fokus|selesai fokus|akhiri fokus|exit focus|end focus|close focus/.test(
       lower
     )
@@ -387,6 +399,7 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
     priority: result.priority ? capitalizeFirstLetter(result.priority) : tasks[0]?.priority || 'Medium',
     category: result.category ? capitalizeFirstLetter(result.category) : tasks[0]?.category || 'General',
     target_view: targetView || null,
+    target: result.target || null,
     reply_summary: replySummary,
     raw: rawTranscript
   }
@@ -451,11 +464,13 @@ CRITICAL TIMEZONE & OFFSET RULES:
     Output "action": "COMPLETE_ACTIVE_FOCUS_TASK", "target": "active_focus_task", "reply_summary": "Tugas berhasil diselesaikan."
 14. If user asks to open, enter, start, or switch to Focus Mode (e.g. "buka tab fokus", "buka mode fokus", "buka fokus", "masuk mode fokus", "open focus", "start focus mode", "ke fokus"):
     Output "action": "NAVIGATE", "target_view": "focus", "reply_summary": "Membuka mode fokus."
+15. If user asks to close, delete, or turn off the minimized focus widget (e.g. "tutup minimize", "hapus minimize", "close minimize", "matikan minimize", "tutup widget fokus", "hapus widget fokus", "tutup widget", "hapus widget"):
+    Output "action": "CLOSE_MINIMIZED_FOCUS", "target": "minimized_focus_widget", "reply_summary": "Widget fokus berhasil ditutup."
 
 Return STRICT JSON ONLY matching this schema without markdown blocks:
 {
-  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "FOCUS_TASK" | "COMPLETE_ACTIVE_FOCUS_TASK" | "UNKNOWN",
-  "target": "active_focus_task" | null,
+  "action": "CREATE_TASKS" | "SCHEDULE_EVENT" | "NAVIGATE" | "CLEAR_COMPLETED" | "EXIT_FOCUS" | "MINIMIZE_FOCUS" | "CLOSE_MINIMIZED_FOCUS" | "FOCUS_TASK" | "COMPLETE_ACTIVE_FOCUS_TASK" | "UNKNOWN",
+  "target": "active_focus_task" | "minimized_focus_widget" | null,
   "tasks": [
     {
       "title": "Clean, concise actionable title",

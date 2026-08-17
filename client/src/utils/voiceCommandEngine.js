@@ -106,7 +106,20 @@ export function parseVoiceIntent(rawTranscript) {
     }
   }
 
-  // 2. Complete Active Focus Task
+  // 2. Close Minimized Focus Widget
+  if (
+    /tutup minimize|hapus minimize|close minimize|matikan minimize|tutup widget fokus|hapus widget fokus|tutup widget|hapus widget|close widget/i.test(
+      text
+    )
+  ) {
+    return {
+      type: 'CLOSE_MINIMIZED_FOCUS',
+      target: 'minimized_focus_widget',
+      raw: text
+    }
+  }
+
+  // 3. Complete Active Focus Task
   if (
     /(?:tandai|mark)?\s*(?:task|tugas)\s+(?:saat ini|ini|fokus|current)?\s*(?:selesai|as done|done|beres|sudah beres)/i.test(
       text

@@ -958,6 +958,19 @@ export default function App() {
         sfx.playSuccess()
         setInterimVoiceText(`✓ ${result.reply_summary || 'Focus diminimize'}`)
         showToast(`🤝 Partner: ${result.reply_summary || 'Focus diminimize ke floating player.'}`)
+      } else if (action === 'CLOSE_MINIMIZED_FOCUS') {
+        if (viewMode === 'minimized') {
+          endSession()
+          sfx.playSuccess()
+          const msg = 'Widget fokus berhasil ditutup.'
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`)
+        } else {
+          sfx.playDeactivate()
+          const msg = 'Tidak ada widget fokus yang sedang di-minimize.'
+          setInterimVoiceText(`✓ ${msg}`)
+          showToast(`🤝 Partner: ${msg}`, 'info')
+        }
       } else if (action === 'FOCUS_TASK') {
         const queryTitle = result.target_task_title || result.title || ''
         const duration = result.duration_minutes
@@ -1039,6 +1052,25 @@ export default function App() {
           sfx.playSuccess()
           setInterimVoiceText('✓ Menutup sesi fokus')
           showToast('🤝 Partner: Sesi fokus ditutup.')
+          return
+        }
+        if (
+          /tutup minimize|hapus minimize|close minimize|matikan minimize|tutup widget fokus|hapus widget fokus|tutup widget|hapus widget|close widget/i.test(
+            lowerTranscript
+          )
+        ) {
+          if (viewMode === 'minimized') {
+            endSession()
+            sfx.playSuccess()
+            const msg = 'Widget fokus berhasil ditutup.'
+            setInterimVoiceText(`✓ ${msg}`)
+            showToast(`🤝 Partner: ${msg}`)
+          } else {
+            sfx.playDeactivate()
+            const msg = 'Tidak ada widget fokus yang sedang di-minimize.'
+            setInterimVoiceText(`✓ ${msg}`)
+            showToast(`🤝 Partner: ${msg}`, 'info')
+          }
           return
         }
         if (
@@ -1125,6 +1157,7 @@ export default function App() {
       customMinutes,
       activeTask,
       tasks,
+      viewMode,
       showToast
     ]
   )
