@@ -9,6 +9,41 @@ function capitalizeFirstLetter(str) {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }
 
+export function levenshteinDistance(s1, s2) {
+  const a = String(s1 || '').toLowerCase()
+  const b = String(s2 || '').toLowerCase()
+  const costs = []
+  for (let i = 0; i <= a.length; i++) {
+    let lastValue = i
+    for (let j = 0; j <= b.length; j++) {
+      if (i === 0) {
+        costs[j] = j
+      } else if (j > 0) {
+        let newValue = costs[j - 1]
+        if (a.charAt(i - 1) !== b.charAt(j - 1)) {
+          newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1
+        }
+        costs[j - 1] = lastValue
+        lastValue = newValue
+      }
+    }
+    if (i > 0) costs[b.length] = lastValue
+  }
+  return costs[b.length]
+}
+
+export function stringSimilarity(s1, s2) {
+  const str1 = String(s1 || '').trim()
+  const str2 = String(s2 || '').trim()
+  if (!str1 || !str2) return 0
+  if (str1.toLowerCase() === str2.toLowerCase()) return 1
+  const longer = str1.length > str2.length ? str1 : str2
+  const shorter = str1.length > str2.length ? str2 : str1
+  if (longer.length === 0) return 1.0
+  const distance = levenshteinDistance(longer, shorter)
+  return (longer.length - distance) / longer.length
+}
+
 /**
  * Get client's local timezone offset formatted as "+07:00" or "-05:00"
  */
@@ -101,7 +136,7 @@ function extractJSON(text) {
   }
 }
 
-function fallbackToLocal(transcript, currentTimeISO = null) {
+function fallbackToLocal(transcript, currentTimeISO = null, existingTaskTitles = []) {
   const local = parseVoiceIntent(transcript)
   let action = 'UNKNOWN'
   let replySummary = `Perintah: "${transcript}"`
@@ -194,12 +229,42 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
       let rawTarget = focusTargetMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
       rawTarget = rawTarget.replace(/\s+(?:selama|for)?\s*\d+\s*(?:menit|mins?|minutes|m\b).*$/i, '').trim()
       const rawMinutes = parseInt(focusTargetMatch[2] || focusTargetMatch[3], 10) || null
+
+      // Context-aware fuzzy matching against existingTaskTitles
+      let matchedTitle = rawTarget
+      if (existingTaskTitles && existingTaskTitles.length > 0) {
+        const compactTarget = rawTarget.replace(/[^a-z0-9]/gi, '').toLowerCase()
+        let bestMatch = null
+        let maxSim = 0
+
+        for (const title of existingTaskTitles) {
+          const cleanTitle = String(title || '').trim()
+          const compactTitle = cleanTitle.replace(/[^a-z0-9]/gi, '').toLowerCase()
+          if (compactTitle && compactTitle === compactTarget) {
+            bestMatch = cleanTitle
+            maxSim = 1
+            break
+          }
+          const simCompact = stringSimilarity(compactTarget, compactTitle)
+          const simRaw = stringSimilarity(rawTarget, cleanTitle)
+          const sim = Math.max(simCompact, simRaw)
+          if (sim > maxSim) {
+            maxSim = sim
+            bestMatch = cleanTitle
+          }
+        }
+
+        if (bestMatch && maxSim >= 0.6) {
+          matchedTitle = bestMatch
+        }
+      }
+
       return {
         action: 'FOCUS_TASK',
         tasks: [],
-        target_task_title: rawTarget,
+        target_task_title: matchedTitle,
         duration_minutes: rawMinutes,
-        reply_summary: `Memulai sesi fokus untuk task "${rawTarget}"${rawMinutes ? ` selama ${rawMinutes} menit` : ''}.`,
+        reply_summary: `Memulai sesi fokus untuk task "${matchedTitle}"${rawMinutes ? ` selama ${rawMinutes} menit` : ''}.`,
         raw: transcript
       }
     }
@@ -323,12 +388,12 @@ function sanitizeAIResult(result, rawTranscript, offsetStr, currentTimeISO = nul
 /**
  * Parse user voice or text command into structured intent using Groq Llama 3 with exact Local Timezone Offset preservation
  */
-export async function parseCommandWithAI(transcript, currentTimeISO = null) {
+export async function parseCommandWithAI(transcript, currentTimeISO = null, existingTaskTitles = []) {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY
 
   if (!apiKey || apiKey.trim() === '') {
     console.warn('VITE_GROQ_API_KEY is not configured. Using local intent parser.')
-    return fallbackToLocal(transcript, currentTimeISO)
+    return fallbackToLocal(transcript, currentTimeISO, existingTaskTitles)
   }
 
   const now = currentTimeISO ? new Date(currentTimeISO) : new Date()
@@ -340,9 +405,16 @@ export async function parseCommandWithAI(transcript, currentTimeISO = null) {
   const dayOfWeekEn = dayNamesEn[now.getDay()]
   const dayOfWeekId = dayNamesId[now.getDay()]
 
+  const activeTaskListContext =
+    existingTaskTitles && existingTaskTitles.length > 0
+      ? `\nEXISTING ACTIVE USER TASKS IN DATABASE:
+${existingTaskTitles.map((t) => `- "${t}"`).join('\n')}
+If the user specifies a task name with typos/abbreviations/phonetic variations (e.g. "Lapsal", "Lat sol", "Latsal", "Lapsol" for "LATSOL"), choose the exact matching task title from the list above for "target_task_title".\n`
+      : ''
+
   const systemPrompt = `You are an elite productivity AI agent and multi-task scheduling engine.
 Current Local Datetime: ${localReferenceISO} (${dayOfWeekEn} / ${dayOfWeekId}).
-User's Local Timezone Offset: ${offsetStr} (e.g., UTC+7 WIB).
+User's Local Timezone Offset: ${offsetStr} (e.g., UTC+7 WIB).${activeTaskListContext}
 
 Your job is to parse user commands (Indonesian or English) into structured actions.
 KEY CAPABILITY: MULTI-TASK DECOMPOSITION & MANDATORY DEADLINES.

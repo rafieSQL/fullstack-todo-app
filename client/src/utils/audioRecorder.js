@@ -258,19 +258,22 @@ export function cancelRecording() {
 /**
  * Process a text command directly with AI or local intent parser
  */
-export async function processTextCommand(text, currentTimeISO = new Date().toISOString()) {
+export async function processTextCommand(text, currentTimeISO = new Date().toISOString(), existingTasks = []) {
   const clean = (text || '').trim()
   if (!clean) {
     throw new Error('Perintah tidak boleh kosong.')
   }
-  const result = await parseCommandWithAI(clean, currentTimeISO)
+  const taskTitles = Array.isArray(existingTasks)
+    ? existingTasks.map((t) => (typeof t === 'string' ? t : t.title)).filter(Boolean)
+    : []
+  const result = await parseCommandWithAI(clean, currentTimeISO, taskTitles)
   return { transcript: clean, result }
 }
 
 /**
  * Stop recording, transcribe via Groq Whisper, and parse intent via Groq Llama 3
  */
-export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new Date().toISOString()) {
+export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new Date().toISOString(), existingTasks = []) {
   onStatusChange?.('⚡ Menghentikan rekaman...')
   const audioBlob = await stopRecording()
 
@@ -282,7 +285,10 @@ export async function stopAndProcessAudio(onStatusChange, currentTimeISO = new D
   }
 
   onStatusChange?.(`🧠 Memproses: "${transcript}"...`)
-  const result = await parseCommandWithAI(transcript, currentTimeISO)
+  const taskTitles = Array.isArray(existingTasks)
+    ? existingTasks.map((t) => (typeof t === 'string' ? t : t.title)).filter(Boolean)
+    : []
+  const result = await parseCommandWithAI(transcript, currentTimeISO, taskTitles)
 
   return { transcript, result }
 }

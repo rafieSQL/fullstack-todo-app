@@ -16,7 +16,7 @@ import {
   isRecordingSupported,
   processTextCommand
 } from './utils/audioRecorder.js'
-import { parseCommandWithAI } from './utils/aiService.js'
+import { parseCommandWithAI, stringSimilarity } from './utils/aiService.js'
 import './App.css'
 
 const CATEGORIES = ['General', 'Engineering', 'Design', 'Personal']
@@ -61,7 +61,7 @@ function findBestMatchingTask(taskList, targetQuery) {
   // Compact alphanumeric representation without spaces or special symbols (e.g. "lat sol" -> "latsol", "lat-sol" -> "latsol")
   const compactQuery = rawQuery.replace(/[^a-z0-9]/gi, '')
 
-  // 1. Exact match
+  // 1. Exact match (raw string)
   const exact = taskList.find((t) => (t.title || '').toLowerCase().trim() === rawQuery)
   if (exact) return exact
 
@@ -94,25 +94,41 @@ function findBestMatchingTask(taskList, targetQuery) {
     if (compactSub) return compactSub
   }
 
-  // 6. Token overlap match (words with length >= 2)
-  const queryTokens = rawQuery.split(/[\s,.-]+/).filter((w) => w.length >= 2)
-  if (queryTokens.length > 0) {
-    let bestTask = null
-    let maxMatch = 0
-    for (const t of taskList) {
-      const titleTokens = (t.title || '')
-        .toLowerCase()
-        .split(/[\s,.-]+/)
-        .filter((w) => w.length >= 2)
-      const matchCount = queryTokens.filter((q) =>
-        titleTokens.some((titleTok) => titleTok.includes(q) || q.includes(titleTok))
-      ).length
-      if (matchCount > maxMatch) {
-        maxMatch = matchCount
-        bestTask = t
+  // 6. Token overlap & Levenshtein similarity matching (>= 60% similarity threshold)
+  let bestFuzzyTask = null
+  let maxSimilarity = 0
+  for (const t of taskList) {
+    const titleRaw = (t.title || '').toLowerCase().trim()
+    const titleCompact = titleRaw.replace(/[^a-z0-9]/gi, '')
+
+    const simCompact = stringSimilarity(compactQuery, titleCompact)
+    const simRaw = stringSimilarity(rawQuery, titleRaw)
+
+    const titleWords = titleRaw.split(/[\s,.-]+/).filter((w) => w.length >= 2)
+    const queryWords = rawQuery.split(/[\s,.-]+/).filter((w) => w.length >= 2)
+    let tokenSim = 0
+    if (queryWords.length > 0 && titleWords.length > 0) {
+      let matchedTokens = 0
+      for (const qw of queryWords) {
+        for (const tw of titleWords) {
+          if (stringSimilarity(qw, tw) >= 0.7 || qw.includes(tw) || tw.includes(qw)) {
+            matchedTokens++
+            break
+          }
+        }
       }
+      tokenSim = matchedTokens / Math.max(queryWords.length, titleWords.length)
     }
-    if (bestTask && maxMatch > 0) return bestTask
+
+    const currentMax = Math.max(simCompact, simRaw, tokenSim)
+    if (currentMax > maxSimilarity) {
+      maxSimilarity = currentMax
+      bestFuzzyTask = t
+    }
+  }
+
+  if (bestFuzzyTask && maxSimilarity >= 0.6) {
+    return bestFuzzyTask
   }
 
   return null
@@ -949,20 +965,20 @@ export default function App() {
           : null
         const effectiveMinutes = duration || customMinutes || 25
         if (duration) {
-          setCustomDuration(duration)
+          setCustomDuration(duration, true)
         }
 
         const pendingTasks = tasks.filter((t) => !t.completed)
         const matched = findBestMatchingTask(pendingTasks, queryTitle) || findBestMatchingTask(tasks, queryTitle)
 
         if (matched) {
-          startSession(matched, matched.title)
+          startSession(matched, matched.title, effectiveMinutes)
           sfx.playSuccess()
           const msg = `Memulai sesi fokus untuk task "${matched.title}" selama ${effectiveMinutes} menit.`
           setInterimVoiceText(`✓ ${msg}`)
           showToast(`🤝 Partner: ${msg}`)
         } else if (queryTitle) {
-          startSession(null, queryTitle)
+          startSession(null, queryTitle, effectiveMinutes)
           sfx.playSuccess()
           const msg = `Memulai sesi fokus untuk task "${queryTitle}" selama ${effectiveMinutes} menit.`
           setInterimVoiceText(`✓ ${msg}`)
@@ -1057,14 +1073,14 @@ export default function App() {
           const rawMinutes = parseInt(focusMatch[2] || focusMatch[3], 10) || null
           const effectiveMinutes = rawMinutes || customMinutes || 25
           if (rawMinutes) {
-            setCustomDuration(rawMinutes)
+            setCustomDuration(rawMinutes, true)
           }
           const pendingTasks = tasks.filter((t) => !t.completed)
           const matched = findBestMatchingTask(pendingTasks, rawTarget) || findBestMatchingTask(tasks, rawTarget)
           if (matched) {
-            startSession(matched, matched.title)
+            startSession(matched, matched.title, effectiveMinutes)
           } else {
-            startSession(null, rawTarget)
+            startSession(null, rawTarget, effectiveMinutes)
           }
           sfx.playSuccess()
           const msg = `Memulai sesi fokus untuk task "${matched ? matched.title : rawTarget}" selama ${effectiveMinutes} menit.`
@@ -1113,7 +1129,7 @@ export default function App() {
       sfx.playActivate()
 
       try {
-        const { transcript, result } = await processTextCommand(text, new Date().toISOString())
+        const { transcript, result } = await processTextCommand(text, new Date().toISOString(), tasks)
         await executePartnerAction(result, transcript)
       } catch (err) {
         console.error('Partner text command error:', err)
@@ -1127,7 +1143,7 @@ export default function App() {
         }, 3500)
       }
     },
-    [partnerPromptInput, executePartnerAction, showToast]
+    [partnerPromptInput, executePartnerAction, showToast, tasks]
   )
 
   // Partner Voice Agent - Direct MediaRecorder + Groq Whisper + Llama 3 Pipeline
@@ -1148,7 +1164,7 @@ export default function App() {
       try {
         const { transcript, result } = await stopAndProcessAudio((statusText) => {
           setInterimVoiceText(statusText)
-        })
+        }, new Date().toISOString(), tasks)
         await executePartnerAction(result, transcript)
       } catch (err) {
         console.warn('Partner voice error:', err.message)
@@ -1185,7 +1201,8 @@ export default function App() {
     isPartnerRecording,
     isPartnerProcessing,
     executePartnerAction,
-    showToast
+    showToast,
+    tasks
   ])
 
   // Global Keyboard shortcuts (/ for search, F for focus, V for Voice Partner, Esc to dismiss)

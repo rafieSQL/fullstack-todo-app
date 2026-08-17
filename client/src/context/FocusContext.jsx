@@ -299,14 +299,20 @@ export function FocusProvider({ children }) {
     [customMinutes]
   )
 
-  // Set custom focus duration (in minutes, 1 - 180)
-  const setCustomDuration = useCallback((minutes) => {
+  // Set custom focus duration (in minutes, 1 - 180) and synchronize countdown seconds
+  const setCustomDuration = useCallback((minutes, autoStart = false) => {
     const clamped = Math.max(1, Math.min(180, Math.round(minutes)))
+    const targetSeconds = clamped * 60
     setCustomMinutes(clamped)
     setMode('focus')
-    setTimeLeft(clamped * 60)
-    setIsRunning(false)
-  }, [])
+    setTimeLeft(targetSeconds)
+    if (autoStart) {
+      setIsRunning(true)
+      getAudioContext()
+    } else {
+      setIsRunning(false)
+    }
+  }, [getAudioContext])
 
   // Reset timer
   const resetTimer = useCallback(() => {
@@ -329,17 +335,25 @@ export function FocusProvider({ children }) {
     [startAmbientSound]
   )
 
-  // Start a new Focus Session
+  // Start a new Focus Session with direct duration synchronization
   const startSession = useCallback(
-    (task = null, customTitle = '') => {
+    (task = null, customTitle = '', durationMinutes = null) => {
       setActiveTask(task)
       setSessionGoal((prev) => {
         if (customTitle) return customTitle
+        if (task?.title) return task.title
         if (prev && prev.trim() !== '') return prev
         return 'Deep Work Session'
       })
       setMode('focus')
-      setTimeLeft(customMinutes * 60)
+      const targetMins = durationMinutes
+        ? Math.max(1, Math.min(180, Math.round(durationMinutes)))
+        : customMinutes
+      const targetSeconds = targetMins * 60
+      if (durationMinutes) {
+        setCustomMinutes(targetMins)
+      }
+      setTimeLeft(targetSeconds)
       setViewMode('fullscreen')
       setIsRunning(true)
       getAudioContext()
