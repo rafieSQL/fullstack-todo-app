@@ -47,14 +47,6 @@ let mockTasks = [
   }
 ]
 
-let mockActivities = [
-  {
-    id: 'act-init',
-    type: 'create',
-    message: 'System initialized with engineering backlog tasks',
-    created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString()
-  }
-]
 
 let mockCalendarEvents = [
   {
@@ -209,10 +201,6 @@ export async function createTask({
       created_at: new Date().toISOString()
     }
     mockTasks = [newTask, ...mockTasks.map((t) => ({ ...t, order: (t.order || 0) + 1 }))]
-    logActivity({
-      type: 'create',
-      message: `Created task "${cleanTitle}" [${cleanCategory} • ${priority.toUpperCase()}]`
-    })
     return newTask
   }
 
@@ -244,15 +232,6 @@ export async function createTask({
     if (error) throw new ApiError(error.message, 400, error)
 
     const finalData = { ...data, due_date: data?.due_date || validDueDate }
-
-    // Non-blocking activity logging
-    logActivity({
-      type: 'create',
-      message: `Created task "${finalData.title}" [${finalData.category} • ${finalData.priority.toUpperCase()}]`,
-      userId,
-      details: { taskId: finalData.id, due_date: validDueDate }
-    }).catch(() => {})
-
     return finalData
   } catch (err) {
     if (err instanceof ApiError) throw err
@@ -302,16 +281,12 @@ let reorderDebounceTimer = null
 /**
  * Reorder task sequences persistently with a 350ms trailing debounce
  */
-export async function reorderTasks(orderedIds, userId = null) {
+export async function reorderTasks(orderedIds) {
   if (!isSupabaseConfigured) {
     const idMap = new Map(mockTasks.map((t) => [t.id, t]))
     mockTasks = orderedIds.map((id, index) => {
       const item = idMap.get(id)
       return { ...item, order: index }
-    })
-    logActivity({
-      type: 'reorder',
-      message: `Reordered task list sequence (${orderedIds.length} items)`
     })
     return { count: orderedIds.length }
   }
@@ -328,13 +303,6 @@ export async function reorderTasks(orderedIds, userId = null) {
         )
 
         await Promise.all(updatePromises)
-
-        logActivity({
-          type: 'reorder',
-          message: `Reordered task sequence (${orderedIds.length} items)`,
-          userId
-        }).catch(() => {})
-
         resolve({ count: orderedIds.length })
       } catch (err) {
         reject(new ApiError(err.message || 'Failed to reorder tasks in Supabase', 500, err))
@@ -346,17 +314,11 @@ export async function reorderTasks(orderedIds, userId = null) {
 /**
  * Batch update completion status
  */
-export async function batchCompleteTasks(taskIds, completed = true, userId = null) {
+export async function batchCompleteTasks(taskIds, completed = true) {
   if (!isSupabaseConfigured) {
     mockTasks = mockTasks.map((t) =>
       taskIds.includes(t.id) ? { ...t, completed, updated_at: new Date().toISOString() } : t
     )
-    logActivity({
-      type: 'batch-complete',
-      message: `Marked ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} as ${
-        completed ? 'completed' : 'active'
-      }`
-    })
     return { count: taskIds.length }
   }
 
@@ -367,15 +329,6 @@ export async function batchCompleteTasks(taskIds, completed = true, userId = nul
       .in('id', taskIds)
 
     if (error) throw new ApiError(error.message, 400, error)
-
-    logActivity({
-      type: 'batch-complete',
-      message: `Marked ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} as ${
-        completed ? 'completed' : 'active'
-      }`,
-      userId
-    }).catch(() => {})
-
     return { count: taskIds.length }
   } catch (err) {
     if (err instanceof ApiError) throw err
@@ -386,13 +339,9 @@ export async function batchCompleteTasks(taskIds, completed = true, userId = nul
 /**
  * Delete a specific task
  */
-export async function deleteTask(id, taskTitle = '', userId = null) {
+export async function deleteTask(id) {
   if (!isSupabaseConfigured) {
     mockTasks = mockTasks.filter((t) => t.id !== id)
-    logActivity({
-      type: 'delete',
-      message: `Deleted task "${taskTitle || id}"`
-    })
     return { id }
   }
 
@@ -400,15 +349,6 @@ export async function deleteTask(id, taskTitle = '', userId = null) {
     const { error } = await supabase.from('tasks').delete().eq('id', id)
 
     if (error) throw new ApiError(error.message, 400, error)
-
-    if (taskTitle) {
-      logActivity({
-        type: 'delete',
-        message: `Deleted task "${sanitizeText(taskTitle, 200)}"`,
-        userId
-      }).catch(() => {})
-    }
-
     return { id }
   } catch (err) {
     if (err instanceof ApiError) throw err
@@ -419,29 +359,16 @@ export async function deleteTask(id, taskTitle = '', userId = null) {
 /**
  * Clear all completed tasks
  */
-export async function clearCompletedTasks(userId = null) {
+export async function clearCompletedTasks() {
   if (!isSupabaseConfigured) {
-    const prevCount = mockTasks.length
     mockTasks = mockTasks.filter((t) => !t.completed)
-    const count = prevCount - mockTasks.length
-    logActivity({
-      type: 'clear-completed',
-      message: `Purged ${count} completed task${count === 1 ? '' : 's'}`
-    })
-    return { count }
+    return { count: 0 }
   }
 
   try {
     const { error } = await supabase.from('tasks').delete().eq('completed', true)
 
     if (error) throw new ApiError(error.message, 400, error)
-
-    logActivity({
-      type: 'clear-completed',
-      message: 'Purged completed tasks',
-      userId
-    }).catch(() => {})
-
     return { message: 'Cleared completed tasks' }
   } catch (err) {
     if (err instanceof ApiError) throw err
@@ -449,117 +376,7 @@ export async function clearCompletedTasks(userId = null) {
   }
 }
 
-/**
- * Fetch recent activity events with explicit column selection
- */
-/**
- * Retrieve recent system activities
- * Safely handles missing 'type' column with fallback to id, message, details, created_at
- */
-export async function getActivityLog(limit = 15) {
-  if (!isSupabaseConfigured) {
-    return mockActivities.slice(0, limit)
-  }
 
-  try {
-    // Attempt standard query first
-    let res = await supabase
-      .from('activity_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    // If query fails (e.g., column mismatch or specific column error), fallback to safe core columns
-    if (res.error) {
-      res = await supabase
-        .from('activity_logs')
-        .select('id, message, details, created_at')
-        .order('created_at', { ascending: false })
-        .limit(limit)
-    }
-
-    if (res.error) {
-      console.warn('Activity log query notice (falling back gracefully):', res.error.message || res.error)
-      return mockActivities.slice(0, limit)
-    }
-
-    return Array.isArray(res.data)
-      ? res.data.map((d) => ({
-          id: d.id,
-          type: d.type || d.action || 'info',
-          message: d.message || d.content || '',
-          details: d.details || {},
-          created_at: d.created_at || new Date().toISOString()
-        }))
-      : []
-  } catch (err) {
-    console.warn('Failed to retrieve activity log (safely swallowed):', err?.message || err)
-    return mockActivities.slice(0, limit)
-  }
-}
-
-/**
- * Record a system activity event (non-blocking, safe failover)
- * Safely falls back if 'type' column is absent in the database schema
- */
-export async function logActivity({ type = 'info', message, details = {}, userId = null }) {
-  const cleanMessage = sanitizeText(message, 500)
-  if (!cleanMessage) return null
-
-  const fallbackAct = {
-    id: `act-${Date.now()}`,
-    type: type || 'info',
-    message: cleanMessage,
-    details,
-    created_at: new Date().toISOString()
-  }
-
-  if (!isSupabaseConfigured) {
-    mockActivities.unshift(fallbackAct)
-    if (mockActivities.length > 30) mockActivities = mockActivities.slice(0, 30)
-    return fallbackAct
-  }
-
-  try {
-    const payload = { type: type || 'info', message: cleanMessage, details }
-    if (userId) payload.user_id = userId
-
-    let { data, error } = await supabase
-      .from('activity_logs')
-      .insert([payload])
-      .select('id, message, details, created_at')
-      .single()
-
-    if (error) {
-      // If column 'type' does not exist in the remote schema, retry inserting without 'type'
-      const retryPayload = { message: cleanMessage, details }
-      if (userId) retryPayload.user_id = userId
-
-      const retryRes = await supabase
-        .from('activity_logs')
-        .insert([retryPayload])
-        .select('id, message, details, created_at')
-        .single()
-
-      if (!retryRes.error && retryRes.data) {
-        return {
-          ...retryRes.data,
-          type: type || 'info'
-        }
-      }
-
-      console.warn('Activity log notice (falling back gracefully):', error.message || error)
-      mockActivities.unshift(fallbackAct)
-      return fallbackAct
-    }
-
-    return data ? { ...data, type: type || 'info' } : fallbackAct
-  } catch (err) {
-    console.warn('Error recording activity log (non-blocking fallback used):', err?.message || err)
-    mockActivities.unshift(fallbackAct)
-    return fallbackAct
-  }
-}
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

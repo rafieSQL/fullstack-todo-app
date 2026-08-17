@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import * as api from '../api.js'
 import { FocusContext } from './FocusContextInstance.js'
 import { MODES, formatFocusTime } from './focusConstants.js'
 
@@ -381,17 +380,6 @@ export function FocusProvider({ children }) {
           if (prev <= 1) {
             setIsRunning(false)
             playCompletionChime()
-
-            // Record completion in Supabase activity log
-            const titleLabel = sessionGoal ? ` on "${sessionGoal}"` : ''
-            api
-              .logActivity({
-                type: 'focus-complete',
-                message: `Completed a ${MODES[mode]?.label || 'Focus'} Session${titleLabel}`,
-                details: { taskId: activeTask?.id, mode }
-              })
-              .catch(() => {})
-
             return 0
           }
           return prev - 1

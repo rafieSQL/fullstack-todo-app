@@ -62,7 +62,6 @@ export default function App() {
 
   // Data state
   const [tasks, setTasks] = useState([])
-  const [activities, setActivities] = useState([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newPriority, setNewPriority] = useState('medium')
   const [newCategory, setNewCategory] = useState('General')
@@ -77,7 +76,6 @@ export default function App() {
   const [sortBy, setSortBy] = useState('custom') // 'custom' | 'newest' | 'oldest' | 'priority' | 'alphabetical'
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTaskIds, setSelectedTaskIds] = useState([])
-  const [isActivityOpen, setIsActivityOpen] = useState(false)
 
   // Theme state
   const [theme, setTheme] = useState(() => {
@@ -142,16 +140,6 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }
 
-  // Load activities
-  const loadActivities = useCallback(async () => {
-    try {
-      const actData = await api.getActivityLog(15)
-      setActivities(actData)
-    } catch {
-      // Non-blocking
-    }
-  }, [])
-
   // Fetch tasks helper for manual user sync/retry
   const loadTasks = useCallback(
     async (showLoadingSpinner = true) => {
@@ -160,7 +148,6 @@ export default function App() {
         setErrorMessage(null)
         const data = await api.getTasks()
         setTasks(data)
-        await loadActivities()
       } catch (err) {
         console.error('Failed to fetch tasks:', err)
         setErrorMessage(err.message || 'Failed to connect to database.')
@@ -168,7 +155,7 @@ export default function App() {
         if (showLoadingSpinner) setIsLoading(false)
       }
     },
-    [loadActivities]
+    []
   )
 
   // 1. Initialize Supabase Auth Session
@@ -207,11 +194,10 @@ export default function App() {
     if (session || isDemoMode) {
       let isMounted = true
 
-      Promise.all([api.getTasks(), api.getActivityLog(15)])
-        .then(([tasksData, actData]) => {
+      api.getTasks()
+        .then((tasksData) => {
           if (isMounted) {
             setTasks(tasksData)
-            setActivities(actData)
             setIsLoading(false)
           }
         })
@@ -375,7 +361,6 @@ export default function App() {
         setTasks((prev) =>
           prev.map((t) => (t.id === tempId ? { ...createdTask, due_date: validDueDate, duration_minutes } : t))
         )
-        loadActivities()
         return createdTask
       } catch (err) {
         console.error('Failed to create task:', err)
@@ -384,7 +369,7 @@ export default function App() {
         throw err
       }
     },
-    [session, showToast, loadActivities]
+    [session, showToast]
   )
 
   // Add Task with AI multi-task decomposition & mandatory deadline inference
@@ -482,7 +467,6 @@ export default function App() {
       try {
         await api.updateTask(task.id, { completed: nextCompleted }, session?.user?.id)
         showToast(nextCompleted ? `Marked "${task.title}" complete` : `Marked "${task.title}" active`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to update task:', err)
         setTasks((prev) =>
@@ -499,7 +483,7 @@ export default function App() {
         }, 400)
       }
     },
-    [busyTaskIds, session, showToast, loadActivities]
+    [busyTaskIds, session, showToast]
   )
 
   // Start Inline Edit
@@ -536,7 +520,6 @@ export default function App() {
       try {
         await api.updateTask(task.id, { title: sanitizedTitle }, session?.user?.id)
         showToast(`Renamed task to "${sanitizedTitle}"`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to rename task:', err)
         setTasks((prev) =>
@@ -545,7 +528,7 @@ export default function App() {
         showToast(`Failed to rename task: ${err.message}`, 'error')
       }
     },
-    [editingTaskId, editingTitle, session, showToast, loadActivities]
+    [editingTaskId, editingTitle, session, showToast]
   )
 
   // Delete Task (accepts task object or taskId string)
@@ -561,14 +544,13 @@ export default function App() {
       try {
         await api.deleteTask(taskId, taskTitle, session?.user?.id)
         showToast(`Deleted "${taskTitle || 'task'}"`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to delete task:', err)
         setTasks(previousTasks)
         showToast(`Failed to delete task: ${err.message}`, 'error')
       }
     },
-    [tasks, session, showToast, loadActivities]
+    [tasks, session, showToast]
   )
 
   // Direct task update helper for calendar rescheduling and edits
@@ -583,7 +565,6 @@ export default function App() {
         setTasks((prev) =>
           prev.map((t) => (t.id === taskId ? { ...t, ...updated } : t))
         )
-        loadActivities()
         return updated
       } catch (err) {
         console.error('Failed to update task:', err)
@@ -592,7 +573,7 @@ export default function App() {
         throw err
       }
     },
-    [tasks, session, showToast, loadActivities]
+    [tasks, session, showToast]
   )
 
   // Clear Completed Tasks
@@ -607,13 +588,12 @@ export default function App() {
     try {
       const res = await api.clearCompletedTasks(session?.user?.id)
       showToast(res.message || `Purged ${completedTasks.length} completed tasks`)
-      loadActivities()
     } catch (err) {
       console.error('Failed to clear completed tasks:', err)
       setTasks(previousTasks)
       showToast(`Failed to clear completed: ${err.message}`, 'error')
     }
-  }, [tasks, session, showToast, loadActivities])
+  }, [tasks, session, showToast])
 
   // Multi-Selection Toggle
   const handleToggleSelect = useCallback((taskId) => {
@@ -636,14 +616,13 @@ export default function App() {
       try {
         await api.batchCompleteTasks(idsToUpdate, completed, session?.user?.id)
         showToast(`Updated ${idsToUpdate.length} tasks`)
-        loadActivities()
       } catch (err) {
         console.error('Failed to batch update:', err)
         loadTasks(false)
         showToast(`Failed to batch update: ${err.message}`, 'error')
       }
     },
-    [selectedTaskIds, session, showToast, loadActivities, loadTasks]
+    [selectedTaskIds, session, showToast, loadTasks]
   )
 
   // Drag and Drop Handlers
@@ -708,13 +687,12 @@ export default function App() {
         const orderedIds = updatedList.map((t) => t.id)
         await api.reorderTasks(orderedIds, session?.user?.id)
         showToast('Task sequence reordered')
-        loadActivities()
       } catch (err) {
         console.error('Failed to save task order:', err)
         showToast('Failed to save order to database', 'error')
       }
     },
-    [draggedTaskId, dropPosition, tasks, session, showToast, loadActivities]
+    [draggedTaskId, dropPosition, tasks, session, showToast]
   )
 
   const handleDragEnd = useCallback(() => {
@@ -852,7 +830,6 @@ export default function App() {
         })
         setTasks((prev) => prev.map((t) => (t.id === tempId ? created : t)))
         showToast(`Added "${cleanTitle}" to ${category}`)
-        loadActivities()
         return created
       } catch (err) {
         setTasks((prev) => prev.filter((t) => t.id !== tempId))
@@ -860,7 +837,7 @@ export default function App() {
         return null
       }
     },
-    [session, showToast, loadActivities]
+    [session, showToast]
   )
 
   // Centralized Partner Action Executor (Shared by Voice & Typed Fallback)
@@ -1214,9 +1191,6 @@ export default function App() {
         handleOpenFocusSession={handleOpenFocusSession}
         theme={theme}
         toggleTheme={toggleTheme}
-        isActivityOpen={isActivityOpen}
-        setIsActivityOpen={setIsActivityOpen}
-        activities={activities}
         loadTasks={loadTasks}
         isPartnerActive={isPartnerRecording}
         isPartnerProcessing={isPartnerProcessing}
@@ -1712,53 +1686,6 @@ export default function App() {
         </footer>
       </section>
       </>
-      )}
-
-      {/* Collapsible Activity Log Drawer */}
-      {isActivityOpen && (
-        <section className="activity-drawer" aria-label="System Activity Log">
-          <div
-            className="activity-drawer-header"
-            onClick={() => setIsActivityOpen(false)}
-            title="Click to collapse activity log"
-          >
-            <div className="activity-drawer-title">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-              <span>Recent System Activity</span>
-              <span className="activity-badge">{activities.length}</span>
-            </div>
-            <button
-              type="button"
-              className="btn-link"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsActivityOpen(false)
-              }}
-            >
-              Close
-            </button>
-          </div>
-
-          <ul className="activity-list">
-            {activities.length === 0 ? (
-              <li className="activity-item">
-                <span className="activity-item-message" style={{ color: 'var(--text-muted)' }}>
-                  No recent activities recorded.
-                </span>
-              </li>
-            ) : (
-              activities.map((act) => (
-                <li key={act.id} className="activity-item">
-                  <span className="activity-item-message">{act.message}</span>
-                  <span className="activity-item-time">{formatTimeAgo(act.created_at || act.timestamp)}</span>
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
       )}
 
       {/* Shortcuts Legend */}
