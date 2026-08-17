@@ -660,6 +660,172 @@
   color: #71717a;
 }
 
+/* Day View Expanded Time Block Styling */
+.chronos-event-card.day-view-card {
+  padding: 4px 12px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chronos-day-event-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  gap: 12px;
+}
+
+.chronos-day-event-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+}
+
+.chronos-day-event-time {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #e4e4e7;
+  flex-shrink: 0;
+}
+
+.chronos-day-event-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.chronos-day-event-title.completed {
+  text-decoration: line-through;
+  color: #71717a;
+}
+
+.chronos-day-event-cat {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.chronos-day-event-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.chronos-day-event-prio {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.chronos-day-event-prio.prio-high {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.chronos-day-event-prio.prio-medium {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.chronos-day-event-prio.prio-low {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.chronos-day-event-done {
+  font-size: 11px;
+  font-weight: 600;
+  color: #34d399;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chronos-day-focus-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  transition: all 0.15s;
+  cursor: pointer;
+}
+
+.chronos-day-focus-btn:hover {
+  background: #f59e0b;
+  color: #000000;
+  border-color: #f59e0b;
+  font-weight: 700;
+}
+
+/* Light Mode Overrides for Day Event Blocks */
+body.light .chronos-day-event-title,
+[data-theme="light"] .chronos-day-event-title {
+  color: #0f172a !important;
+}
+
+body.light .chronos-day-event-title.completed,
+[data-theme="light"] .chronos-day-event-title.completed {
+  color: #94a3b8 !important;
+}
+
+body.light .chronos-day-event-time,
+[data-theme="light"] .chronos-day-event-time {
+  color: #475569 !important;
+}
+
+body.light .chronos-day-event-cat,
+[data-theme="light"] .chronos-day-event-cat {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.light .chronos-day-focus-btn,
+[data-theme="light"] .chronos-day-focus-btn {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.light .chronos-day-focus-btn:hover,
+[data-theme="light"] .chronos-day-focus-btn:hover {
+  background-color: #f59e0b !important;
+  color: #000000 !important;
+  border-color: #f59e0b !important;
+}
+
 /* ==========================================================================
    5. Month Viewport Grid
    ========================================================================== */

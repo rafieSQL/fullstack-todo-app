@@ -593,7 +593,7 @@ export default function ChronosCalendar({
                         return (
                           <div
                             key={task.id}
-                            className={`chronos-event-card priority-${(task.priority || 'medium').toLowerCase()} ${isDone ? 'completed' : ''}`}
+                            className={`chronos-event-card priority-${(task.priority || 'medium').toLowerCase()} ${isDone ? 'completed' : ''} ${viewMode === 'day' ? 'day-view-card' : ''}`}
                             style={{
                               top: `${topPercent}%`,
                               height: `${heightPercent}%`,
@@ -604,21 +604,42 @@ export default function ChronosCalendar({
                             onClick={(e) => handleTaskClick(task, e)}
                             title={`${task.title} • ${formatTimeShort(s)} (${duration}m)`}
                           >
-                            <div className="chronos-event-content">
-                              <div className="chronos-event-header">
-                                <span className="chronos-event-time">
-                                  {formatTimeShort(s)}
-                                </span>
-                                <div className="chronos-event-quick-actions" onClick={(e) => e.stopPropagation()}>
-                                  {onStartFocusSession && !isDone && (
-                                    <button
-                                      type="button"
-                                      className="chronos-event-focus-btn"
-                                      onClick={() => onStartFocusSession(task)}
-                                      title="Start Focus Session (F)"
-                                    >
-                                      ⚡
-                                    </button>
+                            {viewMode === 'day' ? (
+                              <div className="chronos-day-event-row">
+                                <div className="chronos-day-event-left">
+                                  <span className="chronos-day-event-time">
+                                    {formatTimeShort(s)}
+                                  </span>
+                                  <span className={`chronos-day-event-title ${isDone ? 'completed' : ''}`}>
+                                    {task.title}
+                                  </span>
+                                  {task.category && (
+                                    <span className="chronos-day-event-cat">
+                                      {task.category}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Right Action / Status Badges */}
+                                <div className="chronos-day-event-right" onClick={(e) => e.stopPropagation()}>
+                                  {task.priority && (
+                                    <span className={`chronos-day-event-prio prio-${(task.priority || 'medium').toLowerCase()}`}>
+                                      {(task.priority || 'medium').toUpperCase()}
+                                    </span>
+                                  )}
+                                  {isDone ? (
+                                    <span className="chronos-day-event-done">✓ Done</span>
+                                  ) : (
+                                    onStartFocusSession && (
+                                      <button
+                                        type="button"
+                                        className="chronos-day-focus-btn"
+                                        onClick={() => onStartFocusSession(task)}
+                                        title="Start Focus Session (F)"
+                                      >
+                                        ⚡ Focus
+                                      </button>
+                                    )
                                   )}
                                   <button
                                     type="button"
@@ -630,11 +651,39 @@ export default function ChronosCalendar({
                                   </button>
                                 </div>
                               </div>
-                              <span className="chronos-event-title">{task.title}</span>
-                              <div className="chronos-event-meta">
-                                <span className="chronos-event-cat">{task.category || 'General'}</span>
+                            ) : (
+                              <div className="chronos-event-content">
+                                <div className="chronos-event-header">
+                                  <span className="chronos-event-time">
+                                    {formatTimeShort(s)}
+                                  </span>
+                                  <div className="chronos-event-quick-actions" onClick={(e) => e.stopPropagation()}>
+                                    {onStartFocusSession && !isDone && (
+                                      <button
+                                        type="button"
+                                        className="chronos-event-focus-btn"
+                                        onClick={() => onStartFocusSession(task)}
+                                        title="Start Focus Session (F)"
+                                      >
+                                        ⚡
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className={`chronos-event-check-btn ${isDone ? 'checked' : ''}`}
+                                      onClick={() => onToggleTask(task)}
+                                      title={isDone ? 'Mark uncompleted' : 'Mark completed'}
+                                    >
+                                      {isDone ? '✓' : '○'}
+                                    </button>
+                                  </div>
+                                </div>
+                                <span className="chronos-event-title">{task.title}</span>
+                                <div className="chronos-event-meta">
+                                  <span className="chronos-event-cat">{task.category || 'General'}</span>
+                                </div>
                               </div>
-                            </div>
+                            )}
                           </div>
                         )
                       })}
