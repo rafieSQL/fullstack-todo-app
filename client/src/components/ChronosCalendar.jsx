@@ -647,38 +647,38 @@ export default function ChronosCalendar({
         )}
       </div>
 
-      {/* Task Modal (Create / Edit Scheduled Task) */}
+      {/* 4. Floating Centered Modal (Schedule & Edit Task) */}
       {modalState.isOpen && (
         <div
-          className="modal-backdrop"
+          className="chronos-modal-backdrop"
           onClick={() => setModalState({ isOpen: false, mode: 'edit', taskData: null })}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="modal-content chronos-edit-modal"
+            className="chronos-modal-container"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: '440px' }}
           >
-            <div className="modal-header">
+            <div className="chronos-modal-header">
               <h3>{modalState.mode === 'create' ? '🗓️ Schedule Task' : '✏️ Edit Scheduled Task'}</h3>
               <button
                 type="button"
-                className="toast-close-btn"
+                className="chronos-modal-close-btn"
                 onClick={() => setModalState({ isOpen: false, mode: 'edit', taskData: null })}
+                aria-label="Close dialog"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveModal}>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Task Title</label>
+            <form onSubmit={handleSaveModal} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="chronos-form-group">
+                <label className="chronos-form-label">Task Title</label>
                 <input
                   type="text"
                   autoFocus
                   required
-                  className="task-input-primary"
+                  className="chronos-form-input"
                   value={modalState.taskData?.title || ''}
                   onChange={(e) =>
                     setModalState((prev) => ({
@@ -687,15 +687,14 @@ export default function ChronosCalendar({
                     }))
                   }
                   placeholder="e.g. Memakan daging, Meeting klien..."
-                  style={{ width: '100%', marginTop: '4px' }}
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
-                <div>
-                  <label style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Category</label>
+              <div className="chronos-form-grid-2">
+                <div className="chronos-form-group">
+                  <label className="chronos-form-label">Category</label>
                   <select
-                    className="task-input-primary"
+                    className="chronos-form-select"
                     value={modalState.taskData?.category || 'General'}
                     onChange={(e) =>
                       setModalState((prev) => ({
@@ -703,7 +702,6 @@ export default function ChronosCalendar({
                         taskData: { ...prev.taskData, category: e.target.value }
                       }))
                     }
-                    style={{ width: '100%', marginTop: '4px' }}
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -712,10 +710,10 @@ export default function ChronosCalendar({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Priority</label>
+                <div className="chronos-form-group">
+                  <label className="chronos-form-label">Priority</label>
                   <select
-                    className="task-input-primary"
+                    className="chronos-form-select"
                     value={(modalState.taskData?.priority || 'medium').toLowerCase()}
                     onChange={(e) =>
                       setModalState((prev) => ({
@@ -723,7 +721,6 @@ export default function ChronosCalendar({
                         taskData: { ...prev.taskData, priority: e.target.value }
                       }))
                     }
-                    style={{ width: '100%', marginTop: '4px' }}
                   >
                     {PRIORITIES.map((p) => (
                       <option key={p} value={p}>
@@ -734,12 +731,12 @@ export default function ChronosCalendar({
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Date & Time</label>
+              <div className="chronos-form-grid-2">
+                <div className="chronos-form-group">
+                  <label className="chronos-form-label">Date & Time</label>
                   <input
                     type="datetime-local"
-                    className="task-input-primary"
+                    className="chronos-form-input"
                     value={
                       modalState.taskData?.due_date
                         ? modalState.taskData.due_date.slice(0, 16)
@@ -758,16 +755,15 @@ export default function ChronosCalendar({
                         }))
                       }
                     }}
-                    style={{ width: '100%', marginTop: '4px', fontSize: '11px' }}
                   />
                 </div>
-                <div>
-                  <label style={{ fontSize: '11px', color: '#a1a1aa', fontWeight: 600 }}>Duration (Minutes)</label>
+                <div className="chronos-form-group">
+                  <label className="chronos-form-label">Duration (Minutes)</label>
                   <input
                     type="number"
                     min="15"
                     step="15"
-                    className="task-input-primary"
+                    className="chronos-form-input"
                     value={modalState.taskData?.duration_minutes || 30}
                     onChange={(e) =>
                       setModalState((prev) => ({
@@ -778,18 +774,16 @@ export default function ChronosCalendar({
                         }
                       }))
                     }
-                    style={{ width: '100%', marginTop: '4px' }}
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="chronos-modal-footer">
                 {modalState.mode === 'edit' ? (
                   <button
                     type="button"
-                    className="btn-danger"
+                    className="chronos-btn-delete"
                     onClick={handleDeleteFromModal}
-                    style={{ fontSize: '12px', padding: '6px 12px' }}
                   >
                     Delete Task
                   </button>
@@ -797,12 +791,12 @@ export default function ChronosCalendar({
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     type="button"
-                    className="btn-secondary"
+                    className="chronos-btn-cancel"
                     onClick={() => setModalState({ isOpen: false, mode: 'edit', taskData: null })}
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn-primary">
+                  <button type="submit" className="chronos-btn-submit">
                     {modalState.mode === 'create' ? 'Schedule' : 'Save Changes'}
                   </button>
                 </div>
