@@ -989,3 +989,451 @@
 .chronos-btn-submit:active {
   transform: translateY(0);
 }
+
+/* ==========================================================================
+   7. Light Mode Theme Overrides (Seamless Dual-Theme Support)
+   ========================================================================== */
+
+/* Main Containers & Panels */
+body.light .chronos-container,
+[data-theme="light"] .chronos-container,
+.light-theme .chronos-container,
+body.light .chronos-calendar-container,
+[data-theme="light"] .chronos-calendar-container,
+.light-theme .chronos-calendar-container {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06) !important;
+  color: #0f172a !important;
+}
+
+/* Header & Nav */
+body.light .chronos-header,
+[data-theme="light"] .chronos-header,
+.light-theme .chronos-header,
+body.light .calendar-header,
+[data-theme="light"] .calendar-header,
+.light-theme .calendar-header {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-date-title,
+[data-theme="light"] .chronos-date-title,
+.light-theme .chronos-date-title,
+body.light .calendar-header h2,
+[data-theme="light"] .calendar-header h2,
+.light-theme .calendar-header h2 {
+  color: #0f172a !important;
+}
+
+body.light .chronos-btn-today,
+body.light .chronos-btn-chevron,
+body.light .calendar-nav-btn,
+[data-theme="light"] .chronos-btn-today,
+[data-theme="light"] .chronos-btn-chevron,
+[data-theme="light"] .calendar-nav-btn,
+.light-theme .chronos-btn-today,
+.light-theme .chronos-btn-chevron,
+.light-theme .calendar-nav-btn {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+
+body.light .chronos-btn-today:hover,
+body.light .chronos-btn-chevron:hover,
+[data-theme="light"] .chronos-btn-today:hover,
+[data-theme="light"] .chronos-btn-chevron:hover {
+  background-color: #f1f5f9 !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-nav-chevrons,
+[data-theme="light"] .chronos-nav-chevrons {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* View Switcher */
+body.light .chronos-view-switch,
+[data-theme="light"] .chronos-view-switch {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+body.light .chronos-view-btn,
+body.light .view-toggle-btn,
+[data-theme="light"] .chronos-view-btn,
+[data-theme="light"] .view-toggle-btn,
+.light-theme .chronos-view-btn,
+.light-theme .view-toggle-btn {
+  color: #64748b !important;
+}
+
+body.light .chronos-view-btn:hover,
+[data-theme="light"] .chronos-view-btn:hover {
+  color: #0f172a !important;
+}
+
+body.light .chronos-view-btn.active,
+[data-theme="light"] .chronos-view-btn.active {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Morph Button */
+body.light .chronos-morph-status-btn,
+[data-theme="light"] .chronos-morph-status-btn {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+}
+
+body.light .chronos-morph-status-btn.active,
+[data-theme="light"] .chronos-morph-status-btn.active {
+  background-color: rgba(16, 185, 129, 0.08) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #059669 !important;
+}
+
+/* Horizontal Backlog Strip */
+body.light .chronos-backlog-strip,
+body.light .backlog-strip-container,
+[data-theme="light"] .chronos-backlog-strip,
+[data-theme="light"] .backlog-strip-container,
+.light-theme .chronos-backlog-strip,
+.light-theme .backlog-strip-container {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #334155 !important;
+}
+
+body.light .chronos-backlog-label,
+[data-theme="light"] .chronos-backlog-label {
+  color: #475569 !important;
+}
+
+body.light .chronos-backlog-count,
+[data-theme="light"] .chronos-backlog-count {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-backlog-hint,
+body.light .chronos-backlog-empty,
+[data-theme="light"] .chronos-backlog-hint,
+[data-theme="light"] .chronos-backlog-empty {
+  color: #64748b !important;
+}
+
+body.light .chronos-backlog-chip,
+body.light .backlog-chip,
+[data-theme="light"] .chronos-backlog-chip,
+[data-theme="light"] .backlog-chip,
+.light-theme .chronos-backlog-chip,
+.light-theme .backlog-chip {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+body.light .chronos-backlog-chip:hover,
+[data-theme="light"] .chronos-backlog-chip:hover {
+  background-color: #f1f5f9 !important;
+  border-color: #94a3b8 !important;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+body.light .backlog-chip-title,
+[data-theme="light"] .backlog-chip-title {
+  color: #0f172a !important;
+}
+
+/* Calendar Grid & Viewport */
+body.light .chronos-body,
+body.light .chronos-viewport,
+body.light .calendar-grid,
+[data-theme="light"] .chronos-body,
+[data-theme="light"] .chronos-viewport,
+[data-theme="light"] .calendar-grid,
+.light-theme .chronos-body,
+.light-theme .chronos-viewport,
+.light-theme .calendar-grid {
+  background-color: #ffffff !important;
+}
+
+body.light .chronos-grid-header,
+[data-theme="light"] .chronos-grid-header {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+body.light .chronos-time-gutter-header,
+body.light .chronos-time-gutter,
+body.light .calendar-time-column,
+[data-theme="light"] .chronos-time-gutter-header,
+[data-theme="light"] .chronos-time-gutter,
+[data-theme="light"] .calendar-time-column,
+.light-theme .chronos-time-gutter-header,
+.light-theme .chronos-time-gutter,
+.light-theme .calendar-time-column {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+body.light .chronos-time-label,
+body.light .time-slot-label,
+[data-theme="light"] .chronos-time-label,
+[data-theme="light"] .time-slot-label,
+.light-theme .chronos-time-label,
+.light-theme .time-slot-label {
+  color: #64748b !important;
+}
+
+body.light .chronos-day-col-header,
+body.light .day-column-header,
+[data-theme="light"] .chronos-day-col-header,
+[data-theme="light"] .day-column-header,
+.light-theme .chronos-day-col-header,
+.light-theme .day-column-header {
+  border-color: #e2e8f0 !important;
+}
+
+body.light .day-name,
+[data-theme="light"] .day-name {
+  color: #64748b !important;
+}
+
+body.light .day-number,
+[data-theme="light"] .day-number {
+  color: #0f172a !important;
+}
+
+body.light .chronos-day-column,
+body.light .calendar-day-column,
+[data-theme="light"] .chronos-day-column,
+[data-theme="light"] .calendar-day-column,
+.light-theme .chronos-day-column,
+.light-theme .calendar-day-column {
+  background-color: #ffffff !important;
+  border-color: #f1f5f9 !important;
+}
+
+body.light .chronos-day-column.today-column,
+[data-theme="light"] .chronos-day-column.today-column {
+  background-color: rgba(244, 63, 94, 0.025) !important;
+}
+
+body.light .chronos-hour-slot,
+body.light .time-slot-row,
+[data-theme="light"] .chronos-hour-slot,
+[data-theme="light"] .time-slot-row,
+.light-theme .chronos-hour-slot,
+.light-theme .time-slot-row {
+  border-bottom-color: #f1f5f9 !important;
+}
+
+body.light .chronos-hour-slot:hover,
+[data-theme="light"] .chronos-hour-slot:hover {
+  background-color: rgba(0, 0, 0, 0.02) !important;
+}
+
+/* Event Cards in Light Mode */
+body.light .chronos-event-card,
+[data-theme="light"] .chronos-event-card,
+.light-theme .chronos-event-card {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+}
+
+body.light .chronos-event-card:hover,
+[data-theme="light"] .chronos-event-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+body.light .chronos-event-title,
+[data-theme="light"] .chronos-event-title {
+  color: #0f172a !important;
+}
+
+body.light .chronos-event-time,
+[data-theme="light"] .chronos-event-time {
+  color: #334155 !important;
+}
+
+body.light .chronos-event-meta,
+[data-theme="light"] .chronos-event-meta {
+  color: #64748b !important;
+}
+
+body.light .chronos-event-card.priority-high,
+[data-theme="light"] .chronos-event-card.priority-high {
+  background-color: #fef2f2 !important;
+  border-color: #fecaca !important;
+  border-left-color: #ef4444 !important;
+}
+
+body.light .chronos-event-card.priority-medium,
+[data-theme="light"] .chronos-event-card.priority-medium {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+  border-left-color: #f59e0b !important;
+}
+
+body.light .chronos-event-card.priority-low,
+[data-theme="light"] .chronos-event-card.priority-low {
+  background-color: #f0fdf4 !important;
+  border-color: #bbf7d0 !important;
+  border-left-color: #10b981 !important;
+}
+
+body.light .chronos-event-card.completed,
+[data-theme="light"] .chronos-event-card.completed {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.light .chronos-event-card.completed .chronos-event-title,
+[data-theme="light"] .chronos-event-card.completed .chronos-event-title {
+  color: #94a3b8 !important;
+}
+
+/* Month View Light Mode */
+body.light .chronos-month-viewport,
+[data-theme="light"] .chronos-month-viewport {
+  background-color: #ffffff !important;
+}
+
+body.light .chronos-month-grid-header,
+[data-theme="light"] .chronos-month-grid-header {
+  border-color: #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+body.light .chronos-month-cell,
+[data-theme="light"] .chronos-month-cell {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+body.light .chronos-month-cell:hover,
+[data-theme="light"] .chronos-month-cell:hover {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.light .chronos-month-cell.outside-month,
+[data-theme="light"] .chronos-month-cell.outside-month {
+  background-color: #fafafa !important;
+  opacity: 0.4 !important;
+}
+
+body.light .chronos-month-day-num,
+[data-theme="light"] .chronos-month-day-num {
+  color: #64748b !important;
+}
+
+body.light .chronos-month-event-pill,
+[data-theme="light"] .chronos-month-event-pill {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-month-event-pill .month-event-title,
+[data-theme="light"] .chronos-month-event-pill .month-event-title {
+  color: #0f172a !important;
+}
+
+body.light .chronos-month-event-pill .month-event-time,
+[data-theme="light"] .chronos-month-event-pill .month-event-time {
+  color: #64748b !important;
+}
+
+/* Modal in Light Mode */
+body.light .chronos-modal-container,
+[data-theme="light"] .chronos-modal-container {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-modal-header,
+[data-theme="light"] .chronos-modal-header {
+  border-color: #e2e8f0 !important;
+}
+
+body.light .chronos-modal-header h3,
+[data-theme="light"] .chronos-modal-header h3 {
+  color: #0f172a !important;
+}
+
+body.light .chronos-modal-close-btn,
+[data-theme="light"] .chronos-modal-close-btn {
+  color: #64748b !important;
+}
+
+body.light .chronos-modal-close-btn:hover,
+[data-theme="light"] .chronos-modal-close-btn:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-form-label,
+[data-theme="light"] .chronos-form-label {
+  color: #475569 !important;
+}
+
+body.light .chronos-form-input,
+body.light .chronos-form-select,
+[data-theme="light"] .chronos-form-input,
+[data-theme="light"] .chronos-form-select {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-form-input:focus,
+body.light .chronos-form-select:focus,
+[data-theme="light"] .chronos-form-input:focus,
+[data-theme="light"] .chronos-form-select:focus {
+  border-color: #3b82f6 !important;
+  background-color: #ffffff !important;
+}
+
+body.light .chronos-modal-footer,
+[data-theme="light"] .chronos-modal-footer {
+  border-color: #e2e8f0 !important;
+}
+
+body.light .chronos-btn-cancel,
+[data-theme="light"] .chronos-btn-cancel {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+body.light .chronos-btn-cancel:hover,
+[data-theme="light"] .chronos-btn-cancel:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.light .chronos-btn-submit,
+[data-theme="light"] .chronos-btn-submit {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+}
+
+body.light .chronos-btn-submit:hover,
+[data-theme="light"] .chronos-btn-submit:hover {
+  background-color: #1e293b !important;
+}
+
