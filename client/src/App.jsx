@@ -16,6 +16,7 @@ import * as sfx from './utils/sfx.js'
 import {
   startRecording,
   stopAndProcessAudio,
+  cancelRecording,
   isRecordingSupported,
   processTextCommand
 } from './utils/audioRecorder.js'
@@ -183,6 +184,15 @@ export default function App() {
   const [isPartnerTextPromptOpen, setIsPartnerTextPromptOpen] = useState(false)
   const [partnerPromptInput, setPartnerPromptInput] = useState('')
 
+  // Cleanup Voice Partner state & hardware mic
+  const cleanupVoicePartner = useCallback(() => {
+    cancelRecording()
+    setIsPartnerRecording(false)
+    setIsPartnerProcessing(false)
+    setIsPartnerTextPromptOpen(false)
+    setInterimVoiceText('')
+  }, [])
+
   const taskInputRef = useRef(null)
   const searchInputRef = useRef(null)
   const editInputRef = useRef(null)
@@ -329,6 +339,7 @@ export default function App() {
   // Sign out handler (returns to #home)
   const handleSignOut = useCallback(async () => {
     try {
+      cleanupVoicePartner()
       if (isSupabaseConfigured) {
         await supabase.auth.signOut()
       }
@@ -340,7 +351,7 @@ export default function App() {
       console.error('Sign out error:', err)
       showToast('Failed to sign out', 'error')
     }
-  }, [showToast, navigate])
+  }, [showToast, navigate, cleanupVoicePartner])
 
   // Direct programmatic task creation helper for components & AI actions
   const handleCreateTask = useCallback(
@@ -1176,6 +1187,13 @@ export default function App() {
 
   // Partner Voice Agent - Direct MediaRecorder + Groq Whisper + Llama 3 Pipeline
   const handleTogglePartner = useCallback(async () => {
+    // Restrict Voice Partner activation strictly to #main, #calendar, and #focus
+    const allowedRoutes = ['#main', '#calendar', '#focus']
+    const currentHash = window.location.hash || '#home'
+    if (!allowedRoutes.includes(currentHash)) {
+      return
+    }
+
     if (!isRecordingSupported()) {
       setIsPartnerTextPromptOpen(true)
       return
@@ -1233,6 +1251,13 @@ export default function App() {
     tasks
   ])
 
+  // Auto Cleanup Hardware Mic when on #home (Landing Page)
+  useEffect(() => {
+    if (isHome) {
+      cancelRecording()
+    }
+  }, [isHome])
+
   // Sync viewMode with hash route seamlessly
   useEffect(() => {
     if (isFocus && viewMode !== 'fullscreen') {
@@ -1269,13 +1294,18 @@ export default function App() {
         return
       }
 
-      // Voice Partner shortcut (V) works globally in both normal & focus mode
-      if (e.key === 'v' || e.key === 'V') {
-        if (!e.metaKey && !e.ctrlKey) {
-          e.preventDefault()
-          handleTogglePartner()
+      // Voice Partner shortcut (V) works ONLY in #main, #calendar, and #focus
+      const allowedRoutes = ['#main', '#calendar', '#focus']
+      const currentHash = window.location.hash || '#home'
+
+      if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (!allowedRoutes.includes(currentHash)) {
+          // Do not activate mic when on #home (Landing Page)
           return
         }
+        e.preventDefault()
+        handleTogglePartner()
+        return
       }
 
       // Focus Mode shortcuts (F to toggle, Esc to return to previous route)
@@ -1583,7 +1613,10 @@ export default function App() {
         isPartnerActive={isPartnerRecording}
         isPartnerProcessing={isPartnerProcessing}
         onTogglePartner={handleTogglePartner}
-        onNavigateLanding={() => navigate('home')}
+        onNavigateLanding={() => {
+          cleanupVoicePartner()
+          navigate('home')
+        }}
       />
 
       {/* Error / Notice Banner */}
