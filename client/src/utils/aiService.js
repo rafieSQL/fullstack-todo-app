@@ -186,20 +186,20 @@ function fallbackToLocal(transcript, currentTimeISO = null) {
       raw: transcript
     }
   } else {
-    // Focus task targeting & duration regex: e.g. "Fokus ke task Review PR selama 25 menit" or "Kerjakan database 30 menit"
+    // Focus task targeting & duration regex: e.g. "Fokus ke task LATSOL selama 25 menit" or "Kerjakan lat sol 30 menit"
     const focusTargetMatch = lower.match(
       /(?:fokus(?:kan)?(?:\s+(?:ke|pada))?|kerjakan)\s+(?:task|tugas)?\s*(.+?)(?:\s+(?:selama|for)\s+(\d+)\s*(?:menit|mins?|m)|\s+(\d+)\s*(?:menit|mins?|m))?$/i
     )
     if (focusTargetMatch && !/tutup|keluar|selesai|akhiri|minimize|kalender|calendar/.test(focusTargetMatch[1])) {
-      const rawTarget = focusTargetMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
+      let rawTarget = focusTargetMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
+      rawTarget = rawTarget.replace(/\s+(?:selama|for)?\s*\d+\s*(?:menit|mins?|minutes|m\b).*$/i, '').trim()
       const rawMinutes = parseInt(focusTargetMatch[2] || focusTargetMatch[3], 10) || null
-      action = 'FOCUS_TASK'
       return {
-        action,
+        action: 'FOCUS_TASK',
         tasks: [],
         target_task_title: rawTarget,
         duration_minutes: rawMinutes,
-        reply_summary: `Mengarahkan fokus ke "${rawTarget}"${rawMinutes ? ` selama ${rawMinutes} menit` : ''}.`,
+        reply_summary: `Memulai sesi fokus untuk task "${rawTarget}"${rawMinutes ? ` selama ${rawMinutes} menit` : ''}.`,
         raw: transcript
       }
     }

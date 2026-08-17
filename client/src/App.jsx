@@ -53,32 +53,60 @@ function formatTimeAgo(isoString) {
 
 function findBestMatchingTask(taskList, targetQuery) {
   if (!taskList || taskList.length === 0 || !targetQuery) return null
-  const query = targetQuery.toLowerCase().trim()
-  if (!query) return null
+
+  // Normalize query: lowercase, remove excess spaces
+  const rawQuery = String(targetQuery).toLowerCase().trim()
+  if (!rawQuery) return null
+
+  // Compact alphanumeric representation without spaces or special symbols (e.g. "lat sol" -> "latsol", "lat-sol" -> "latsol")
+  const compactQuery = rawQuery.replace(/[^a-z0-9]/gi, '')
 
   // 1. Exact match
-  const exact = taskList.find((t) => t.title?.toLowerCase().trim() === query)
+  const exact = taskList.find((t) => (t.title || '').toLowerCase().trim() === rawQuery)
   if (exact) return exact
 
-  // 2. Substring match
-  const includes = taskList.find((t) => t.title?.toLowerCase().includes(query))
+  // 2. Compact alphanumeric exact match (covers acronyms & split words like LATSOL vs "lat sol")
+  if (compactQuery.length >= 2) {
+    const compactExact = taskList.find((t) => {
+      const comp = (t.title || '').toLowerCase().replace(/[^a-z0-9]/gi, '')
+      return comp === compactQuery
+    })
+    if (compactExact) return compactExact
+  }
+
+  // 3. Substring match on raw strings
+  const includes = taskList.find((t) => (t.title || '').toLowerCase().includes(rawQuery))
   if (includes) return includes
 
-  // 3. Reverse substring match
+  // 4. Reverse substring match on raw strings
   const reverseIncludes = taskList.find((t) => {
-    const tTitle = t.title?.toLowerCase().trim()
-    return tTitle && query.includes(tTitle)
+    const tTitle = (t.title || '').toLowerCase().trim()
+    return tTitle && rawQuery.includes(tTitle)
   })
   if (reverseIncludes) return reverseIncludes
 
-  // 4. Token overlap match
-  const queryWords = query.split(/\s+/).filter((w) => w.length > 2)
-  if (queryWords.length > 0) {
+  // 5. Compact alphanumeric substring / reverse substring match
+  if (compactQuery.length >= 3) {
+    const compactSub = taskList.find((t) => {
+      const comp = (t.title || '').toLowerCase().replace(/[^a-z0-9]/gi, '')
+      return comp.includes(compactQuery) || (comp.length >= 3 && compactQuery.includes(comp))
+    })
+    if (compactSub) return compactSub
+  }
+
+  // 6. Token overlap match (words with length >= 2)
+  const queryTokens = rawQuery.split(/[\s,.-]+/).filter((w) => w.length >= 2)
+  if (queryTokens.length > 0) {
     let bestTask = null
     let maxMatch = 0
     for (const t of taskList) {
-      const titleLower = (t.title || '').toLowerCase()
-      const matchCount = queryWords.filter((w) => titleLower.includes(w)).length
+      const titleTokens = (t.title || '')
+        .toLowerCase()
+        .split(/[\s,.-]+/)
+        .filter((w) => w.length >= 2)
+      const matchCount = queryTokens.filter((q) =>
+        titleTokens.some((titleTok) => titleTok.includes(q) || q.includes(titleTok))
+      ).length
       if (matchCount > maxMatch) {
         maxMatch = matchCount
         bestTask = t
@@ -94,6 +122,7 @@ export default function App() {
   // Focus Session global state from FocusContext
   const {
     viewMode,
+    customMinutes,
     startSession,
     minimizeSession,
     endSession,
@@ -963,6 +992,7 @@ export default function App() {
         const duration = result.duration_minutes
           ? Math.max(1, Math.min(180, parseInt(result.duration_minutes, 10)))
           : null
+        const effectiveMinutes = duration || customMinutes || 25
         if (duration) {
           setCustomDuration(duration)
         }
@@ -973,13 +1003,13 @@ export default function App() {
         if (matched) {
           startSession(matched, matched.title)
           sfx.playSuccess()
-          const msg = `Fokus ke "${matched.title}"${duration ? ` (${duration}m)` : ''}`
+          const msg = `Memulai sesi fokus untuk task "${matched.title}" selama ${effectiveMinutes} menit.`
           setInterimVoiceText(`✓ ${msg}`)
           showToast(`🤝 Partner: ${msg}`)
         } else if (queryTitle) {
           startSession(null, queryTitle)
           sfx.playSuccess()
-          const msg = `Fokus pada "${queryTitle}"${duration ? ` (${duration}m)` : ''}`
+          const msg = `Memulai sesi fokus untuk task "${queryTitle}" selama ${effectiveMinutes} menit.`
           setInterimVoiceText(`✓ ${msg}`)
           showToast(`🤝 Partner: ${msg}`)
         } else {
@@ -1067,8 +1097,10 @@ export default function App() {
         const focusRegex = /(?:fokus(?:kan)?(?:\s+(?:ke|pada))?|kerjakan)\s+(?:task|tugas)?\s*(.+?)(?:\s+(?:selama|for)\s+(\d+)\s*(?:menit|mins?|m)|\s+(\d+)\s*(?:menit|mins?|m))?$/i
         const focusMatch = lowerTranscript.match(focusRegex)
         if (focusMatch && !/tutup|keluar|selesai|akhiri|minimize|kalender|calendar/.test(focusMatch[1])) {
-          const rawTarget = focusMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
+          let rawTarget = focusMatch[1].replace(/^(?:task|tugas)\s+/i, '').trim()
+          rawTarget = rawTarget.replace(/\s+(?:selama|for)?\s*\d+\s*(?:menit|mins?|minutes|m\b).*$/i, '').trim()
           const rawMinutes = parseInt(focusMatch[2] || focusMatch[3], 10) || null
+          const effectiveMinutes = rawMinutes || customMinutes || 25
           if (rawMinutes) {
             setCustomDuration(rawMinutes)
           }
@@ -1080,7 +1112,7 @@ export default function App() {
             startSession(null, rawTarget)
           }
           sfx.playSuccess()
-          const msg = `Fokus ke "${matched ? matched.title : rawTarget}"${rawMinutes ? ` (${rawMinutes}m)` : ''}`
+          const msg = `Memulai sesi fokus untuk task "${matched ? matched.title : rawTarget}" selama ${effectiveMinutes} menit.`
           setInterimVoiceText(`✓ ${msg}`)
           showToast(`🤝 Partner: ${msg}`)
           return
@@ -1106,6 +1138,7 @@ export default function App() {
       startSession,
       setActiveTask,
       setCustomDuration,
+      customMinutes,
       activeTask,
       tasks,
       showToast

@@ -31,14 +31,13 @@ export async function transcribeAudioWithWhisper(audioBlob) {
 
   const apiKey = (import.meta.env.VITE_GROQ_API_KEY || '').trim()
   const mimeType = audioBlob.type || 'audio/webm'
-  const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
-  const file = new File([audioBlob], `speech.${ext}`, { type: mimeType })
+  const file = new File([audioBlob], 'audio.webm', { type: mimeType || 'audio/webm' })
 
-  // 1. Direct Groq Whisper API
+  // 1. Direct Groq Whisper API (whisper-large-v3)
   if (apiKey) {
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', file, 'audio.webm')
       formData.append('model', 'whisper-large-v3')
       formData.append('language', 'id')
 
@@ -52,8 +51,11 @@ export async function transcribeAudioWithWhisper(audioBlob) {
 
       if (whisperRes.ok) {
         const whisperData = await whisperRes.json()
-        const transcript = whisperData.text?.trim() || ''
-        if (transcript) return transcript
+        const transcriptText = whisperData.text !== undefined && whisperData.text !== null
+          ? String(whisperData.text).trim()
+          : ''
+        console.log('Whisper raw transcript:', transcriptText)
+        if (transcriptText) return transcriptText
       } else {
         const errText = await whisperRes.text().catch(() => '')
         console.warn(`Direct Groq Whisper API returned ${whisperRes.status}: ${errText}`)
@@ -88,8 +90,12 @@ export async function transcribeAudioWithWhisper(audioBlob) {
 
       if (proxyRes.ok) {
         const proxyData = await proxyRes.json()
-        if (proxyData.text?.trim()) {
-          return proxyData.text.trim()
+        const proxyTranscript = proxyData.text !== undefined && proxyData.text !== null
+          ? String(proxyData.text).trim()
+          : ''
+        console.log('Whisper raw transcript:', proxyTranscript)
+        if (proxyTranscript) {
+          return proxyTranscript
         }
       }
     }
@@ -97,7 +103,11 @@ export async function transcribeAudioWithWhisper(audioBlob) {
     console.warn('Serverless proxy transcribe error:', proxyErr.message)
   }
 
-  throw new Error('Suara tidak terdengar jelas atau API Whisper belum terkonfigurasi. Silakan coba lagi.')
+  if (!apiKey) {
+    throw new Error('VITE_GROQ_API_KEY belum dikonfigurasi di file environment .env.')
+  }
+
+  throw new Error('Suara tidak terdengar jelas atau mikrofon terlalu jauh. Silakan coba lagi.')
 }
 
 /**
